@@ -58,6 +58,14 @@ static const struct i2c_device_id emc2305_ids[] = {
 };
 MODULE_DEVICE_TABLE(i2c, emc2305_ids);
 
+static const struct of_device_id emc2305_of_match[] = {
+	{ .compatible = "microchip,emc2305", },
+	{ .compatible = "microchip,emc2303", },
+	{ .compatible = "microchip,emc2302", },
+	{ .compatible = "microchip,emc2301", },
+	{ }
+}
+
 /**
  * struct emc2305_cdev_data - device-specific cooling device state
  * @cdev: cooling device
@@ -614,6 +622,7 @@ static struct i2c_driver emc2305_driver = {
 	.class  = I2C_CLASS_HWMON,
 	.driver = {
 		.name = "emc2305",
+		.of_match_table = of_match_ptr(emc2305_of_match),
 	},
 	.probe = emc2305_probe,
 	.remove	  = emc2305_remove,
