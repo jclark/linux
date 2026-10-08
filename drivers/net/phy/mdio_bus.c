@@ -18,6 +18,7 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/phy.h>
+#include <linux/ptp_clock_kernel.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/string.h>
@@ -153,13 +154,18 @@ EXPORT_SYMBOL(__mdiobus_write);
  * @val: value to write to @regnum
  * @sts: system timestamps bounding completion, or NULL
  *
- * Return: Zero if successful, negative error code on failure. If @sts
+ * Return: Zero if successful, negative error code on failure. Returns
+ *	   -EBUSY if the selected clock's generation changed during the
+ *	   timestamped write; the write has completed in that case. If @sts
  *	   is not NULL, -EOPNOTSUPP is returned only if
  *	   mdiobus_supports_write_sts() is false.
  *
  * Write a MDIO bus register, with system timestamps bounding completion;
  * a transfer is considered complete on the rising edge of the MDC
  * that clocks the last data bit. Caller must hold the mdio bus lock.
+ *
+ * For clocks that can be stepped, validate the clock generation through
+ * the raw time of the upper bound.
  *
  * If @sts is NULL, perform an ordinary write.
  *
@@ -168,6 +174,7 @@ EXPORT_SYMBOL(__mdiobus_write);
 int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 			struct ptp_system_timestamp *sts)
 {
+	struct system_time_snapshot now;
 	int err;
 
 	if (!sts)
@@ -186,7 +193,34 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 	trace_mdio_access(bus, 0, addr, regnum, val, err);
 	mdiobus_stats_acct(&bus->stats[addr], false, err);
 
-	return err;
+	if (err)
+		return err;
+
+	if (!sts->pre_sts.valid || !sts->post_sts.valid)
+		return -EINVAL;
+
+	/* Setting realtime does not step monotonic or monotonic raw. */
+	if (sts->clockid != CLOCK_REALTIME &&
+	    (sts->clockid < CLOCK_AUX || sts->clockid > CLOCK_AUX_LAST))
+		return 0;
+
+	if (sts->pre_sts.clock_was_set_seq != sts->post_sts.clock_was_set_seq)
+		return -EBUSY;
+
+	/* The shifted upper bound can be later than actual completion. */
+	for (;;) {
+		ktime_get_snapshot_id(sts->clockid, &now);
+		if (!now.valid)
+			return -EINVAL;
+
+		if (now.clock_was_set_seq != sts->pre_sts.clock_was_set_seq)
+			return -EBUSY;
+
+		if (!ktime_before(now.monoraw, sts->post_sts.monoraw))
+			return 0;
+
+		cpu_relax();
+	}
 }
 EXPORT_SYMBOL_GPL(__mdiobus_write_sts);
 
