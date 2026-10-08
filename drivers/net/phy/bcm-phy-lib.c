@@ -48,8 +48,8 @@ bool bcm_phy_supports_write_exp_sts(struct phy_device *phydev)
 }
 EXPORT_SYMBOL_GPL(bcm_phy_supports_write_exp_sts);
 
-int __bcm_phy_write_exp_sts(struct phy_device *phydev, u16 reg, u16 val,
-			    struct ptp_system_timestamp *sts)
+static int __bcm_phy_write_exp_sts(struct phy_device *phydev, u16 reg, u16 val,
+				   struct ptp_system_timestamp *sts)
 {
 	int rc;
 
@@ -59,7 +59,6 @@ int __bcm_phy_write_exp_sts(struct phy_device *phydev, u16 reg, u16 val,
 
 	return __phy_write_sts(phydev, MII_BCM54XX_EXP_DATA, val, sts);
 }
-EXPORT_SYMBOL_GPL(__bcm_phy_write_exp_sts);
 
 int bcm_phy_write_exp_sts(struct phy_device *phydev, u16 reg, u16 val,
 			  struct ptp_system_timestamp *sts)
