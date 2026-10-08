@@ -384,10 +384,43 @@ mdio_pm_exit:
 	return status;
 }
 
+static void macb_mdio_sts_bounds(struct macb *bp, u64 *pre_ns, u64 *post_ns)
+{
+	static const u16 gem_divisors[] = {
+		[GEM_CLK_DIV8] = 8,
+		[GEM_CLK_DIV16] = 16,
+		[GEM_CLK_DIV32] = 32,
+		[GEM_CLK_DIV48] = 48,
+		[GEM_CLK_DIV64] = 64,
+		[GEM_CLK_DIV96] = 96,
+		[GEM_CLK_DIV128] = 128,
+		[GEM_CLK_DIV224] = 224,
+	};
+	static const u16 macb_divisors[] = {
+		[MACB_CLK_DIV8] = 8,
+		[MACB_CLK_DIV16] = 16,
+		[MACB_CLK_DIV32] = 32,
+		[MACB_CLK_DIV64] = 64,
+	};
+	u32 config = macb_readl(bp, NCFGR);
+	u32 divisor;
+
+	if (macb_is_gem(bp))
+		divisor = gem_divisors[GEM_BFEXT(CLK, config)];
+	else
+		divisor = macb_divisors[MACB_BFEXT(CLK, config)];
+
+	/* A full-preamble write completes 63..65 MDC periods after the
+	 * command write, including engine start phase.
+	 */
+	mdiobus_sts_bounds(bp->mdio_sts_rate, divisor, 63, 65, pre_ns, post_ns);
+}
+
 static int macb_mdio_write_c22_sts(struct mii_bus *bus, int mii_id, int regnum,
 				   u16 value, struct ptp_system_timestamp *sts)
 {
 	struct macb *bp = bus->priv;
+	u64 pre_ns, post_ns;
 	unsigned long flags;
 	int status;
 	u32 cmd;
@@ -408,6 +441,7 @@ static int macb_mdio_write_c22_sts(struct mii_bus *bus, int mii_id, int regnum,
 	      | MACB_BF(DATA, value);
 
 	if (sts) {
+		macb_mdio_sts_bounds(bp, &pre_ns, &post_ns);
 		local_irq_save(flags);
 		ptp_read_system_prets(sts);
 		/* macb_writel() is relaxed; order it after the timestamp. */
@@ -422,8 +456,8 @@ static int macb_mdio_write_c22_sts(struct mii_bus *bus, int mii_id, int regnum,
 		ptp_read_system_postts(sts);
 		local_irq_restore(flags);
 
-		sts->pre_sts.systime += bp->mdio_write_pre_ns;
-		sts->post_sts.systime += bp->mdio_write_post_ns;
+		sts->pre_sts.systime += pre_ns;
+		sts->post_sts.systime += post_ns;
 	}
 
 	status = macb_mdio_wait_for_idle(bp);
@@ -1170,41 +1204,9 @@ static int macb_mdiobus_register(struct macb *bp, struct device_node *mdio_np)
 
 static bool macb_mdio_init_sts(struct macb *bp)
 {
-	static const u16 gem_divisors[] = {
-		[GEM_CLK_DIV8] = 8,
-		[GEM_CLK_DIV16] = 16,
-		[GEM_CLK_DIV32] = 32,
-		[GEM_CLK_DIV48] = 48,
-		[GEM_CLK_DIV64] = 64,
-		[GEM_CLK_DIV96] = 96,
-		[GEM_CLK_DIV128] = 128,
-		[GEM_CLK_DIV224] = 224,
-	};
-	static const u16 macb_divisors[] = {
-		[MACB_CLK_DIV8] = 8,
-		[MACB_CLK_DIV16] = 16,
-		[MACB_CLK_DIV32] = 32,
-		[MACB_CLK_DIV64] = 64,
-	};
-	unsigned long rate = clk_get_rate(bp->pclk);
-	u32 config = macb_readl(bp, NCFGR);
-	u32 divisor;
+	bp->mdio_sts_rate = clk_get_rate(bp->pclk);
 
-	if (!rate)
-		return false;
-
-	if (macb_is_gem(bp))
-		divisor = gem_divisors[GEM_BFEXT(CLK, config)];
-	else
-		divisor = macb_divisors[MACB_BFEXT(CLK, config)];
-
-	/* A full-preamble write completes 63..65 MDC periods after the
-	 * command write, including engine start phase.
-	 */
-	mdiobus_sts_bounds(rate, divisor, 63, 65,
-			   &bp->mdio_write_pre_ns, &bp->mdio_write_post_ns);
-
-	return true;
+	return bp->mdio_sts_rate != 0;
 }
 
 static int macb_mii_init(struct macb *bp)
