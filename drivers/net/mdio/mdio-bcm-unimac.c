@@ -150,11 +150,20 @@ out:
 	return ret;
 }
 
-static void unimac_mdio_sts_bounds(struct unimac_mdio_priv *priv, u32 config,
-				   u64 *pre_ns, u64 *post_ns)
+static int unimac_mdio_sts_bounds(struct unimac_mdio_priv *priv,
+				  u64 *pre_ns, u64 *post_ns)
 {
-	u32 divisor;
+	u32 cmd, config, divisor;
+	int ret;
 
+	/* The bounds assume the controller is idle. */
+	ret = read_poll_timeout_atomic(unimac_mdio_readl, cmd,
+				       !(cmd & MDIO_START_BUSY),
+				       1, 1000, false, priv, MDIO_CMD);
+	if (ret)
+		return ret;
+
+	config = unimac_mdio_readl(priv, MDIO_CFG);
 	divisor = 2 * (((config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK) + 1);
 	/* A clause 22 write with preamble is 64 bits, so its last bit
 	 * comes 63 MDC periods after its first. The upper bound of 65
@@ -162,6 +171,8 @@ static void unimac_mdio_sts_bounds(struct unimac_mdio_priv *priv, u32 config,
 	 * command write.
 	 */
 	mdiobus_sts_bounds(priv->mdio_ref_rate, divisor, 63, 65, pre_ns, post_ns);
+
+	return 0;
 }
 
 static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
@@ -169,7 +180,7 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 {
 	struct unimac_mdio_priv *priv = bus->priv;
 	u64 pre_ns, post_ns;
-	u32 cmd, config;
+	u32 cmd;
 	int ret;
 
 	ret = clk_prepare_enable(priv->clk);
@@ -177,8 +188,9 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 		return ret;
 
 	if (sts) {
-		config = unimac_mdio_readl(priv, MDIO_CFG);
-		unimac_mdio_sts_bounds(priv, config, &pre_ns, &post_ns);
+		ret = unimac_mdio_sts_bounds(priv, &pre_ns, &post_ns);
+		if (ret)
+			goto out;
 	}
 
 	/* Prepare the write operation */
@@ -195,10 +207,7 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 	}
 
 	ret = priv->wait_func(priv->wait_func_data);
-	/* Some wait callbacks do not propagate a completion timeout. */
-	if (!ret && sts &&
-	    (unimac_mdio_readl(priv, MDIO_CMD) & MDIO_START_BUSY))
-		ret = -ETIMEDOUT;
+out:
 	clk_disable_unprepare(priv->clk);
 
 	return ret;
