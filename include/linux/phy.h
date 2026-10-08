@@ -1799,6 +1799,17 @@ static inline int __phy_write(struct phy_device *phydev, u32 regnum, u16 val)
 }
 
 /**
+ * phy_supports_write_sts - Check for timestamped PHY register writes
+ * @phydev: the phy_device struct
+ *
+ * Return: true if __phy_write_sts() can return system timestamps.
+ */
+static inline bool phy_supports_write_sts(struct phy_device *phydev)
+{
+	return mdiobus_supports_write_sts(phydev->mdio.bus);
+}
+
+/**
  * __phy_write_sts - Write a PHY register with a frame-end timestamp
  * @phydev: the phy_device struct
  * @regnum: clause 22 register number

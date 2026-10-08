@@ -226,26 +226,18 @@ static int bcm_ptp_framesync_ts(struct phy_device *phydev,
 				struct timespec64 *ts,
 				u16 orig_ctrl)
 {
-	bool mdio_sts = false;
 	u16 ctrl, reg;
 	int i, err = 0;
 
 	ctrl = bcm_ptp_framesync_disable(phydev, orig_ctrl);
 
 	/* trigger framesync + capture */
-	if (sts && phydev->mdio.bus->write_sts) {
-		mdio_sts = true;
+	if (sts && bcm_phy_supports_write_exp_sts(phydev)) {
 		/* cannot ignore error since sts may be uninitialized,
 		 * but still poll for any triggered capture
 		 */
 		err = bcm_ptp_framesync_sts(phydev, ctrl | NSE_CAPTURE_EN, sts);
-		if (err == -EOPNOTSUPP) {
-			mdio_sts = false;
-			err = 0;
-		}
-	}
-
-	if (!mdio_sts) {
+	} else {
 		ptp_read_system_prets(sts);
 		bcm_ptp_framesync(phydev, ctrl | NSE_CAPTURE_EN);
 		ptp_read_system_postts(sts);
