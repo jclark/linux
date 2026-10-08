@@ -153,12 +153,15 @@ EXPORT_SYMBOL(__mdiobus_write);
  * @val: value to write to @regnum
  * @sts: system timestamps bounding completion, or NULL
  *
+ * Return: Zero if successful, negative error code on failure. If @sts
+ *	   is not NULL, -EOPNOTSUPP is returned only if
+ *	   mdiobus_supports_write_sts() is false.
+ *
  * Write a MDIO bus register, with system timestamps bounding completion;
  * a transfer is considered complete on the rising edge of the MDC
  * that clocks the last data bit. Caller must hold the mdio bus lock.
  *
- * If @sts is NULL, perform an ordinary write. Otherwise, return
- * -EOPNOTSUPP if the bus has no write_sts operation.
+ * If @sts is NULL, perform an ordinary write.
  *
  * NOTE: MUST NOT be called from interrupt context.
  */
