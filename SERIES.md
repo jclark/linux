@@ -234,8 +234,8 @@ configured MDC divider.
 The upper bound assumes the write completes no more than 65 MDC
 periods after the command write. On BCM2711, the time from the command
 write until MDIO_START_BUSY clears was measured with the MDC divider
-set to 9, 14, 19, 29 and 39: at each divider it was about 64.4
-periods, using 200 MHz as the reference rate.
+set to 9, 14, 19, 29 and 39: at each divider it was 64.0 periods,
+using 200 MHz as the reference rate.
 
 Use a 200 MHz reference rate for BCM2711 GENET, whose clock is not
 described in DT.
