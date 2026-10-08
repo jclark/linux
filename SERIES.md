@@ -105,6 +105,7 @@ the only method available, since /dev/ptp1 is not available.
 - `include/linux/mdio.h`: declarations of `__mdiobus_write_sts()` and
   `mdiobus_supports_write_sts()`
 - `drivers/net/phy/mdio_bus.c`: `__mdiobus_write_sts()`, `mdiobus_supports_write_sts()`
+- `drivers/net/mdio/mdio-mux.c`: `mdio_mux_write_sts()`, forwarding `write_sts` to the parent bus
 
 ### 2/4 net: phy: broadcom: use timestamped MDIO writes in gettimex64
 
