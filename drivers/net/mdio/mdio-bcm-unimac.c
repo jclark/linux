@@ -176,10 +176,6 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 
 	if (sts) {
 		config = unimac_mdio_readl(priv, MDIO_CFG);
-		if (config & MDIO_SUPP_PREAMBLE) {
-			ret = -EOPNOTSUPP;
-			goto out;
-		}
 		unimac_mdio_sts_bounds(priv, config, &pre_ns, &post_ns);
 	}
 
@@ -201,7 +197,6 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 	if (!ret && sts &&
 	    (unimac_mdio_readl(priv, MDIO_CMD) & MDIO_START_BUSY))
 		ret = -ETIMEDOUT;
-out:
 	clk_disable_unprepare(priv->clk);
 
 	return ret;
@@ -299,6 +294,8 @@ out:
 static bool unimac_mdio_init_sts(struct unimac_mdio_priv *priv,
 				 struct device *dev)
 {
+	u32 config;
+
 	priv->mdio_ref_rate = clk_get_rate(priv->clk);
 	/* BCM2711's 200 MHz GENET reference clock is not described in DT. */
 	if (!priv->mdio_ref_rate && dev->parent &&
@@ -306,7 +303,15 @@ static bool unimac_mdio_init_sts(struct unimac_mdio_priv *priv,
 				    "brcm,bcm2711-genet-v5"))
 		priv->mdio_ref_rate = 200000000;
 
-	return priv->mdio_ref_rate != 0;
+	if (!priv->mdio_ref_rate)
+		return false;
+
+	if (clk_prepare_enable(priv->clk))
+		return false;
+	config = unimac_mdio_readl(priv, MDIO_CFG);
+	clk_disable_unprepare(priv->clk);
+
+	return !(config & MDIO_SUPP_PREAMBLE);
 }
 
 static int unimac_mdio_probe(struct platform_device *pdev)
