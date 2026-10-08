@@ -200,8 +200,7 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 
 	if (sts) {
 		unimac_mdio_start_sts(priv, sts);
-		sts->pre_sts.systime += pre_ns;
-		sts->post_sts.systime += post_ns;
+		ptp_adjust_system_ts(sts, pre_ns, post_ns);
 	} else {
 		unimac_mdio_start(priv);
 	}

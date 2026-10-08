@@ -458,8 +458,7 @@ static int macb_mdio_write_c22_sts(struct mii_bus *bus, int mii_id, int regnum,
 		ptp_read_system_postts(sts);
 		local_irq_restore(flags);
 
-		sts->pre_sts.systime += pre_ns;
-		sts->post_sts.systime += post_ns;
+		ptp_adjust_system_ts(sts, pre_ns, post_ns);
 	}
 
 	status = macb_mdio_wait_for_idle(bp);

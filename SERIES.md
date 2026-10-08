@@ -98,7 +98,7 @@ the only method available, since /dev/ptp1 is not available.
 
 ## Split
 
-### 1/4 net: mdio: add timestamped write operation
+### 1/5 net: mdio: add timestamped write operation
 
 - `include/linux/phy.h`: `write_sts` in `struct mii_bus`; `phy_supports_write_sts()`;
   `__phy_write_sts()`
@@ -107,25 +107,29 @@ the only method available, since /dev/ptp1 is not available.
 - `drivers/net/phy/mdio_bus.c`: `__mdiobus_write_sts()`, `mdiobus_supports_write_sts()`
 - `drivers/net/mdio/mdio-mux.c`: `mdio_mux_write_sts()`, forwarding `write_sts` to the parent bus
 
-### 2/4 net: phy: broadcom: use timestamped MDIO writes in gettimex64
+### 2/5 net: phy: broadcom: use timestamped MDIO writes in gettimex64
 
 - `drivers/net/phy/bcm-phy-lib.c`, `bcm-phy-lib.h`: `bcm_phy_supports_write_exp_sts()`,
   `__bcm_phy_write_exp_sts()`, `bcm_phy_write_exp_sts()`
 - `drivers/net/phy/bcm-phy-ptp.c`: `bcm_ptp_framesync_sts()`, `bcm_ptp_framesync_ts()`
 
-### 3/4 net: macb: implement timestamped MDIO writes
+### 3/5 ptp: add a function to adjust system timestamp bounds
+
+- `include/linux/ptp_clock_kernel.h`: `__ptp_adjust_snapshot()`, `ptp_adjust_system_ts()`
+
+### 4/5 net: macb: implement timestamped MDIO writes
 
 - `include/linux/mdio.h`: `mdiobus_sts_bounds()` and its `math64.h`/`time64.h` includes. This
-  patch is its first user; 4/4 also uses it.
+  patch is its first user; 5/5 also uses it.
 - `drivers/net/ethernet/cadence/macb.h`, `macb_main.c`
 
-### 4/4 net: mdio: bcm-unimac: implement timestamped MDIO writes
+### 5/5 net: mdio: bcm-unimac: implement timestamped MDIO writes
 
 - `drivers/net/mdio/mdio-bcm-unimac.c`
 
 ## Commit messages
 
-### 1/4
+### 1/5
 
 ```
 net: mdio: add timestamped write operation
@@ -144,7 +148,7 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
-### 2/4
+### 2/5
 
 ```
 net: phy: broadcom: use timestamped MDIO writes in gettimex64
@@ -160,7 +164,38 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
-### 3/4
+### 3/5
+
+```
+ptp: add a function to adjust system timestamp bounds
+
+Add ptp_adjust_system_ts(), which shifts the pre and post system
+timestamps by given durations.
+
+An MDIO bus driver can take system timestamps around the command that
+starts a write, and knows how long the write takes, so it can shift the
+timestamps to bound the completion of the write.
+
+Signed-off-by: James Clark <jjc@jclark.com>
+Assisted-by: LLM
+```
+
+Notes for 3/5, after the `---` line (in the email, not the commit message):
+
+```
+The time of the selected clock is moved by the CLOCK_MONOTONIC_RAW
+duration without scaling it for that clock's frequency correction,
+because timekeeping has no interface for that. While the clock is
+synchronized the error is negligible: under 2 ns for a 50 ppm
+correction over the 31 us MDIO frame time in this series. It is larger
+only while the clock is being slewed. An interface along these lines
+would allow it to be done properly:
+
+	/* Scale a CLOCK_MONOTONIC_RAW duration to the rate of @clock_id */
+	u64 ktime_scale_raw_ns(clockid_t clock_id, u64 ns);
+```
+
+### 4/5
 
 ```
 net: macb: implement timestamped MDIO writes
@@ -177,7 +212,7 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
-### 4/4
+### 5/5
 
 ```
 net: mdio: bcm-unimac: implement timestamped MDIO writes
@@ -203,7 +238,7 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
-Notes for 4/4, after the `---` line (in the email, not the commit message):
+Notes for 5/5, after the `---` line (in the email, not the commit message):
 
 ```
 The 200 MHz BCM2711 GENET reference rate is not documented: it is

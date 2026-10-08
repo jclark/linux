@@ -520,4 +520,36 @@ static inline void ptp_read_system_postts(struct ptp_system_timestamp *sts)
 		ktime_get_snapshot_id(sts->clockid, &sts->post_sts);
 }
 
+static inline void __ptp_adjust_snapshot(struct system_time_snapshot *snap,
+					 s64 ns)
+{
+	snap->systime = ktime_add_ns(snap->systime, ns);
+	snap->monoraw = ktime_add_ns(snap->monoraw, ns);
+	/* No counter value corresponds to the adjusted times. */
+	snap->cycles = 0;
+	snap->cs_id = CSID_GENERIC;
+	snap->hw_cycles = 0;
+	snap->hw_csid = CSID_GENERIC;
+}
+
+/**
+ * ptp_adjust_system_ts - Adjust the system timestamp bounds
+ * @sts: system timestamps, or NULL
+ * @pre_ns: CLOCK_MONOTONIC_RAW nanoseconds to add to the lower bound
+ * @post_ns: CLOCK_MONOTONIC_RAW nanoseconds to add to the upper bound
+ *
+ * Add each duration to the selected clock's time and to the
+ * CLOCK_MONOTONIC_RAW time of its bound. The durations are not scaled for
+ * the selected clock's frequency correction. The clocksource counter values
+ * are cleared.
+ */
+static inline void ptp_adjust_system_ts(struct ptp_system_timestamp *sts,
+					s64 pre_ns, s64 post_ns)
+{
+	if (!sts)
+		return;
+	__ptp_adjust_snapshot(&sts->pre_sts, pre_ns);
+	__ptp_adjust_snapshot(&sts->post_sts, post_ns);
+}
+
 #endif
