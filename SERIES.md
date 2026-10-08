@@ -195,3 +195,15 @@ described in DT.
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
+
+Notes for 4/4, after the `---` line (in the email, not the commit message):
+
+```
+The 200 MHz BCM2711 GENET reference rate is not documented: it is
+inferred from MDIO busy times measured at several MDC dividers.
+Checking the parent's compatible string in UniMAC to supply it is
+unsatisfactory, and I would welcome suggestions for a better way to
+provide the rate. On other UniMAC users the rate is taken from the
+clock in DT, on the assumption that it is the reference the MDC
+divider applies to.
+```
