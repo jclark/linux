@@ -208,6 +208,12 @@ Take system timestamps around the command register write, then add
 bounds on the transfer time calculated from the peripheral clock rate
 and configured MDC divider.
 
+The upper bound assumes the write completes no more than 65 MDC
+periods after the command write. On RP1, the time from the command
+write until NSR reports idle was measured with the MDC divisor set to
+48, 64, 96 and 128: at each divisor it was 65.0 periods, using the
+200 MHz pclk rate.
+
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
