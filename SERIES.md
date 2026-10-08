@@ -103,8 +103,7 @@ the only method available, since /dev/ptp1 is not available.
 - `include/linux/phy.h`: `write_sts` in `struct mii_bus`; `phy_supports_write_sts()`;
   `__phy_write_sts()`
 - `include/linux/mdio.h`: declarations of `__mdiobus_write_sts()` and
-  `mdiobus_supports_write_sts()`; `mdiobus_sts_bounds()` and its `math64.h`/`time64.h` includes
-  (item 9: move these to 3/4)
+  `mdiobus_supports_write_sts()`
 - `drivers/net/phy/mdio_bus.c`: `__mdiobus_write_sts()`, `mdiobus_supports_write_sts()`
 
 ### 2/4 net: phy: broadcom: use timestamped MDIO writes in gettimex64
@@ -115,6 +114,8 @@ the only method available, since /dev/ptp1 is not available.
 
 ### 3/4 net: macb: implement timestamped MDIO writes
 
+- `include/linux/mdio.h`: `mdiobus_sts_bounds()` and its `math64.h`/`time64.h` includes. This
+  patch is its first user; 4/4 also uses it.
 - `drivers/net/ethernet/cadence/macb.h`, `macb_main.c`
 
 ### 4/4 net: mdio: bcm-unimac: implement timestamped MDIO writes
