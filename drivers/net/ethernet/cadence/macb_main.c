@@ -410,8 +410,10 @@ static void macb_mdio_sts_bounds(struct macb *bp, u64 *pre_ns, u64 *post_ns)
 	else
 		divisor = macb_divisors[MACB_BFEXT(CLK, config)];
 
-	/* A full-preamble write completes 63..65 MDC periods after the
-	 * command write, including engine start phase.
+	/* A clause 22 write with preamble is 64 bits, so its last bit
+	 * comes 63 MDC periods after its first. The upper bound of 65
+	 * allows up to two periods for the frame to start after the
+	 * command write.
 	 */
 	mdiobus_sts_bounds(bp->mdio_sts_rate, divisor, 63, 65, pre_ns, post_ns);
 }
