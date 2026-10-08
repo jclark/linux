@@ -369,17 +369,19 @@ struct mii_bus {
 	int (*read)(struct mii_bus *bus, int addr, int regnum);
 	/** @write: Perform a write transfer on the bus */
 	int (*write)(struct mii_bus *bus, int addr, int regnum, u16 val);
-	/**
-	 * @write_sts: Perform a write transfer on the bus,
-	 * with system timestamps bounding its completion
-	 */
-	int (*write_sts)(struct mii_bus *bus, int addr, int regnum, u16 val,
-			 struct ptp_system_timestamp *sts);
 	/** @read_c45: Perform a C45 read transfer on the bus */
 	int (*read_c45)(struct mii_bus *bus, int addr, int devnum, int regnum);
 	/** @write_c45: Perform a C45 write transfer on the bus */
 	int (*write_c45)(struct mii_bus *bus, int addr, int devnum,
 			 int regnum, u16 val);
+	/**
+	 * @write_sts: Perform a write transfer on the bus,
+	 * with system timestamps bounding its completion. Set only
+	 * if timestamps can always be provided. Must not return
+	 * -EOPNOTSUPP.
+	 */
+	int (*write_sts)(struct mii_bus *bus, int addr, int regnum, u16 val,
+			 struct ptp_system_timestamp *sts);
 	/** @reset: Perform a reset of the bus */
 	int (*reset)(struct mii_bus *bus);
 	/**
