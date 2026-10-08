@@ -402,6 +402,7 @@ static void macb_mdio_sts_bounds(struct macb *bp, u64 *pre_ns, u64 *post_ns)
 		[MACB_CLK_DIV32] = 32,
 		[MACB_CLK_DIV64] = 64,
 	};
+	unsigned long rate = clk_get_rate(bp->pclk);
 	u32 config = macb_readl(bp, NCFGR);
 	u32 divisor;
 
@@ -415,7 +416,7 @@ static void macb_mdio_sts_bounds(struct macb *bp, u64 *pre_ns, u64 *post_ns)
 	 * allows up to two periods for the frame to start after the
 	 * command write.
 	 */
-	mdiobus_sts_bounds(bp->mdio_sts_rate, divisor, 63, 65, pre_ns, post_ns);
+	mdiobus_sts_bounds(rate, divisor, 63, 65, pre_ns, post_ns);
 }
 
 static int macb_mdio_write_c22_sts(struct mii_bus *bus, int mii_id, int regnum,
@@ -1205,9 +1206,7 @@ static int macb_mdiobus_register(struct macb *bp, struct device_node *mdio_np)
 
 static bool macb_mdio_init_sts(struct macb *bp)
 {
-	bp->mdio_sts_rate = clk_get_rate(bp->pclk);
-
-	return bp->mdio_sts_rate != 0;
+	return clk_get_rate(bp->pclk) != 0;
 }
 
 static int macb_mii_init(struct macb *bp)
