@@ -198,7 +198,8 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 
 	if (sts) {
 		unimac_mdio_start_sts(priv, sts);
-		ptp_adjust_system_ts(sts, delay_ns, delay_ns);
+		ptp_adjust_system_prets(sts, delay_ns);
+		ptp_adjust_system_postts(sts, delay_ns);
 	} else {
 		unimac_mdio_start(priv);
 	}

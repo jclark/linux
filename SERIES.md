@@ -113,9 +113,10 @@ the only method available, since /dev/ptp1 is not available.
   `__bcm_phy_write_exp_sts()`, `bcm_phy_write_exp_sts()`
 - `drivers/net/phy/bcm-phy-ptp.c`: `bcm_ptp_framesync_sts()`, `bcm_ptp_framesync_ts()`
 
-### 3/5 ptp: add a function to adjust system timestamp bounds
+### 3/5 ptp: add functions to adjust system timestamps
 
-- `include/linux/ptp_clock_kernel.h`: `__ptp_adjust_snapshot()`, `ptp_adjust_system_ts()`
+- `include/linux/ptp_clock_kernel.h`: `__ptp_adjust_snapshot()`, `ptp_adjust_system_prets()`,
+  `ptp_adjust_system_postts()`
 
 ### 4/5 net: macb: implement timestamped MDIO writes
 
@@ -165,10 +166,10 @@ Assisted-by: LLM
 ### 3/5
 
 ```
-ptp: add a function to adjust system timestamp bounds
+ptp: add functions to adjust system timestamps
 
-Add ptp_adjust_system_ts(), which shifts the pre and post system
-timestamps by given durations.
+Add ptp_adjust_system_prets() and ptp_adjust_system_postts(), which
+shift the pre or post system timestamp by a given duration.
 
 An MDIO bus driver can take system timestamps around the command that
 starts a write, and knows how long after that command the write

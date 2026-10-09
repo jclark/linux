@@ -533,23 +533,35 @@ static inline void __ptp_adjust_snapshot(struct system_time_snapshot *snap,
 }
 
 /**
- * ptp_adjust_system_ts - Adjust the system timestamp bounds
+ * ptp_adjust_system_prets - Shift the lower system timestamp bound
  * @sts: system timestamps, or NULL
- * @pre_ns: CLOCK_MONOTONIC_RAW nanoseconds to add to the lower bound
- * @post_ns: CLOCK_MONOTONIC_RAW nanoseconds to add to the upper bound
+ * @ns: CLOCK_MONOTONIC_RAW nanoseconds to add
  *
- * Add each duration to the selected clock's time and to the
- * CLOCK_MONOTONIC_RAW time of its bound. The durations are not scaled for
- * the selected clock's frequency correction. The clocksource counter values
- * are cleared.
+ * Add @ns to the selected clock's time and to the CLOCK_MONOTONIC_RAW
+ * time of the lower bound, and clear its clocksource counter values.
+ * @ns is not scaled for the selected clock's frequency correction.
  */
-static inline void ptp_adjust_system_ts(struct ptp_system_timestamp *sts,
-					s64 pre_ns, s64 post_ns)
+static inline void ptp_adjust_system_prets(struct ptp_system_timestamp *sts,
+					   s64 ns)
 {
-	if (!sts)
-		return;
-	__ptp_adjust_snapshot(&sts->pre_sts, pre_ns);
-	__ptp_adjust_snapshot(&sts->post_sts, post_ns);
+	if (sts)
+		__ptp_adjust_snapshot(&sts->pre_sts, ns);
+}
+
+/**
+ * ptp_adjust_system_postts - Shift the upper system timestamp bound
+ * @sts: system timestamps, or NULL
+ * @ns: CLOCK_MONOTONIC_RAW nanoseconds to add
+ *
+ * Add @ns to the selected clock's time and to the CLOCK_MONOTONIC_RAW
+ * time of the upper bound, and clear its clocksource counter values.
+ * @ns is not scaled for the selected clock's frequency correction.
+ */
+static inline void ptp_adjust_system_postts(struct ptp_system_timestamp *sts,
+					    s64 ns)
+{
+	if (sts)
+		__ptp_adjust_snapshot(&sts->post_sts, ns);
 }
 
 #endif
