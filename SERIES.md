@@ -220,6 +220,15 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
+Notes for 4/5, after the `---` line (in the email, not the commit message):
+
+```
+The 63.5-period delay has been measured only on RP1, but the code
+assumes it holds for all MACB and GEM variants. I am not sure whether
+that is a reasonable assumption; if not, write_sts could be enabled
+only for RP1.
+```
+
 ### 5/5
 
 ```
