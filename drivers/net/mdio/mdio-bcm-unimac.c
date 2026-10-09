@@ -157,9 +157,9 @@ static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 	int ret;
 
 	/* The delays assume the controller is idle. */
-	ret = read_poll_timeout_atomic(unimac_mdio_readl, cmd,
-				       !(cmd & MDIO_START_BUSY),
-				       1, 1000, false, priv, MDIO_CMD);
+	ret = read_poll_timeout(unimac_mdio_readl, cmd,
+				!(cmd & MDIO_START_BUSY),
+				1, 1000, false, priv, MDIO_CMD);
 	if (ret)
 		return ret;
 
