@@ -523,6 +523,8 @@ static inline void ptp_read_system_postts(struct ptp_system_timestamp *sts)
 static inline void __ptp_adjust_snapshot(struct system_time_snapshot *snap,
 					 s64 ns)
 {
+	if (!snap->valid)
+		return;
 	snap->systime = ktime_add_ns(snap->systime, ns);
 	snap->monoraw = ktime_add_ns(snap->monoraw, ns);
 	/* No counter value corresponds to the adjusted times. */
