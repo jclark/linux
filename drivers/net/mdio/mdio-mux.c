@@ -133,6 +133,9 @@ static int mdio_mux_write_sts(struct mii_bus *bus, int phy_id, int regnum,
 
 	mutex_lock_nested(&pb->mii_bus->mdio_lock, MDIO_MUTEX_MUX);
 	r = pb->switch_fn(pb->current_child, cb->bus_number, pb->switch_data);
+	/* write_sts must not return -EOPNOTSUPP. */
+	if (r == -EOPNOTSUPP)
+		r = -EIO;
 	if (r)
 		goto out;
 
