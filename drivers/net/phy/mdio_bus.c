@@ -174,6 +174,7 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 			struct ptp_system_timestamp *sts)
 {
 	struct system_time_snapshot now;
+	ktime_t deadline;
 	int err;
 
 	if (!sts)
@@ -207,6 +208,7 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 		return -EBUSY;
 
 	/* The shifted upper bound can be later than actual completion. */
+	deadline = ktime_add_ns(ktime_get_raw(), NSEC_PER_MSEC);
 	for (;;) {
 		ktime_get_snapshot_id(sts->clockid, &now);
 		if (!now.valid)
@@ -222,7 +224,7 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 		 * write's delay. This guards against an aux clock being
 		 * disabled and reenabled, which restarts its raw time.
 		 */
-		if (ktime_sub(sts->post_sts.monoraw, now.monoraw) > NSEC_PER_MSEC)
+		if (!ktime_before(ktime_get_raw(), deadline))
 			return -EBUSY;
 
 		cpu_relax();
