@@ -43,9 +43,9 @@ computes a bracket for completion of a transfer by shifting the bracket
 for the start of the MDIO transfer by bounds on its duration.
 
 The effect of this series is to reduce the system clock synchronization
-error from about 32 µs to below 0.1 µs on the CM5, and from about 7 µs
+error from about 32 µs to about 0.3 µs on the CM5, and from about 7 µs
 to below 1 µs on the CM4. PTP_SYS_OFFSET_EXTENDED brackets are reduced
-from 74 µs to about 2.2 µs on the CM5 and from 42 µs to 1.1 µs on the
+from 74 µs to about 1.3 µs on the CM5 and from 42 µs to 0.9 µs on the
 CM4.
 
 Note that SPI introduced a similar facility to allow a device driver to
