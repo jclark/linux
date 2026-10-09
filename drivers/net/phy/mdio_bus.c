@@ -155,8 +155,7 @@ EXPORT_SYMBOL(__mdiobus_write);
  * @sts: system timestamps bounding completion, or NULL
  *
  * Return: Zero if successful, negative error code on failure. Returns
- *	   -EBUSY if the selected clock's generation changed during the
- *	   timestamped write; the write has completed in that case. If @sts
+ *	   -EBUSY or -EINVAL if the system timestamps are not valid. If @sts
  *	   is not NULL, -EOPNOTSUPP is returned only if
  *	   mdiobus_supports_write_sts() is false.
  *
