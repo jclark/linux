@@ -9,6 +9,12 @@ https://claude.ai/artifact/QLFHJhSmeextZBi7rAAUBo
 
 ## Cover letter
 
+Subject (git format-patch adds `[PATCH net-next 0/5]`):
+
+```
+net: mdio: add timestamped MDIO writes for PHY gettimex64
+```
+
 Starting point: the description of raspberrypi/linux PR #7673 as it was on GitHub on
 2026-10-08 (last edited 2026-10-06), converted to plain text. Not yet edited for netdev.
 
