@@ -42,12 +42,6 @@ int bcm_phy_write_exp(struct phy_device *phydev, u16 reg, u16 val)
 }
 EXPORT_SYMBOL_GPL(bcm_phy_write_exp);
 
-bool bcm_phy_supports_write_exp_sts(struct phy_device *phydev)
-{
-	return phy_supports_write_sts(phydev);
-}
-EXPORT_SYMBOL_GPL(bcm_phy_supports_write_exp_sts);
-
 static int __bcm_phy_write_exp_sts(struct phy_device *phydev, u16 reg, u16 val,
 				   struct ptp_system_timestamp *sts)
 {
