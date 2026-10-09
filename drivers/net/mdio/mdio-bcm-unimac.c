@@ -164,6 +164,8 @@ static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 		return ret;
 
 	config = unimac_mdio_readl(priv, MDIO_CFG);
+	if (config & MDIO_SUPP_PREAMBLE)
+		return -EIO;
 	divisor = 2 * (((config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK) + 1);
 	/* On BCM2711 the MDC divider runs freely, so the MDC edge that
 	 * clocks the last bit of a write comes 63.5 to 64.5 periods after
