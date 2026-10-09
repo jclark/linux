@@ -150,13 +150,12 @@ out:
 	return ret;
 }
 
-static int unimac_mdio_sts_bounds(struct unimac_mdio_priv *priv,
-				  u64 *pre_ns, u64 *post_ns)
+static int unimac_mdio_sts_delay(struct unimac_mdio_priv *priv, u64 *delay_ns)
 {
 	u32 cmd, config, divisor;
 	int ret;
 
-	/* The bounds assume the controller is idle. */
+	/* The delay assumes the controller is idle. */
 	ret = read_poll_timeout_atomic(unimac_mdio_readl, cmd,
 				       !(cmd & MDIO_START_BUSY),
 				       1, 1000, false, priv, MDIO_CMD);
@@ -165,12 +164,11 @@ static int unimac_mdio_sts_bounds(struct unimac_mdio_priv *priv,
 
 	config = unimac_mdio_readl(priv, MDIO_CFG);
 	divisor = 2 * (((config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK) + 1);
-	/* A clause 22 write with preamble is 64 bits, so its last bit
-	 * comes 63 MDC periods after its first. The upper bound of 65
-	 * allows up to two periods for the frame to start after the
-	 * command write.
+	/* On BCM2711 the MDC edge that clocks the last bit of a write
+	 * comes 64 periods after the command start.
 	 */
-	mdiobus_sts_bounds(priv->mdio_ref_rate, divisor, 63, 65, pre_ns, post_ns);
+	*delay_ns = div64_ul(64ULL * divisor * NSEC_PER_SEC,
+			     priv->mdio_ref_rate);
 
 	return 0;
 }
@@ -179,7 +177,7 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 				 u16 val, struct ptp_system_timestamp *sts)
 {
 	struct unimac_mdio_priv *priv = bus->priv;
-	u64 pre_ns, post_ns;
+	u64 delay_ns;
 	u32 cmd;
 	int ret;
 
@@ -188,7 +186,7 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 		return ret;
 
 	if (sts) {
-		ret = unimac_mdio_sts_bounds(priv, &pre_ns, &post_ns);
+		ret = unimac_mdio_sts_delay(priv, &delay_ns);
 		if (ret)
 			goto out;
 	}
@@ -200,7 +198,7 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 
 	if (sts) {
 		unimac_mdio_start_sts(priv, sts);
-		ptp_adjust_system_ts(sts, pre_ns, post_ns);
+		ptp_adjust_system_ts(sts, delay_ns, delay_ns);
 	} else {
 		unimac_mdio_start(priv);
 	}

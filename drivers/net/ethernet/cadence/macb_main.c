@@ -384,7 +384,7 @@ mdio_pm_exit:
 	return status;
 }
 
-static void macb_mdio_sts_bounds(struct macb *bp, u64 *pre_ns, u64 *post_ns)
+static u64 macb_mdio_sts_delay(struct macb *bp)
 {
 	static const u16 gem_divisors[] = {
 		[GEM_CLK_DIV8] = 8,
@@ -411,20 +411,18 @@ static void macb_mdio_sts_bounds(struct macb *bp, u64 *pre_ns, u64 *post_ns)
 	else
 		divisor = macb_divisors[MACB_BFEXT(CLK, config)];
 
-	/* A clause 22 write with preamble is 64 bits, so its last bit
-	 * comes 63 MDC periods after its first. The upper bound of 65
-	 * allows up to two periods for the frame to start after the
-	 * command write.
+	/* On RP1 the MDC edge that clocks the last bit of a clause 22
+	 * write comes 63.5 periods after the command write.
 	 */
-	mdiobus_sts_bounds(rate, divisor, 63, 65, pre_ns, post_ns);
+	return div64_ul(127ULL * divisor * NSEC_PER_SEC, 2 * rate);
 }
 
 static int macb_mdio_write_c22_sts(struct mii_bus *bus, int mii_id, int regnum,
 				   u16 value, struct ptp_system_timestamp *sts)
 {
 	struct macb *bp = bus->priv;
-	u64 pre_ns, post_ns;
 	unsigned long flags;
+	u64 delay_ns;
 	int status;
 	u32 cmd;
 
@@ -444,7 +442,7 @@ static int macb_mdio_write_c22_sts(struct mii_bus *bus, int mii_id, int regnum,
 	      | MACB_BF(DATA, value);
 
 	if (sts) {
-		macb_mdio_sts_bounds(bp, &pre_ns, &post_ns);
+		delay_ns = macb_mdio_sts_delay(bp);
 		local_irq_save(flags);
 		ptp_read_system_prets(sts);
 		/* macb_writel() is relaxed; order it after the timestamp. */
@@ -459,7 +457,7 @@ static int macb_mdio_write_c22_sts(struct mii_bus *bus, int mii_id, int regnum,
 		ptp_read_system_postts(sts);
 		local_irq_restore(flags);
 
-		ptp_adjust_system_ts(sts, pre_ns, post_ns);
+		ptp_adjust_system_ts(sts, delay_ns, delay_ns);
 	}
 
 	status = macb_mdio_wait_for_idle(bp);

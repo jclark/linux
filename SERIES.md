@@ -119,9 +119,7 @@ the only method available, since /dev/ptp1 is not available.
 
 ### 4/5 net: macb: implement timestamped MDIO writes
 
-- `include/linux/mdio.h`: `mdiobus_sts_bounds()` and its `math64.h`/`time64.h` includes. This
-  patch is its first user; 5/5 also uses it.
-- `drivers/net/ethernet/cadence/macb.h`, `macb_main.c`
+- `drivers/net/ethernet/cadence/macb_main.c`
 
 ### 5/5 net: mdio: bcm-unimac: implement timestamped MDIO writes
 
@@ -173,8 +171,9 @@ Add ptp_adjust_system_ts(), which shifts the pre and post system
 timestamps by given durations.
 
 An MDIO bus driver can take system timestamps around the command that
-starts a write, and knows how long the write takes, so it can shift the
-timestamps to bound the completion of the write.
+starts a write, and knows how long after that command the write
+completes, so it can shift the timestamps to bound the completion of
+the write.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
@@ -187,7 +186,7 @@ The time of the selected clock is moved by the CLOCK_MONOTONIC_RAW
 duration without scaling it for that clock's frequency correction,
 because timekeeping has no interface for that. While the clock is
 synchronized the error is negligible: under 2 ns for a 50 ppm
-correction over the 31 us MDIO frame time in this series. It is larger
+correction over the 30 us MDIO write time in this series. It is larger
 only while the clock is being slewed. An interface along these lines
 would allow it to be done properly:
 
@@ -205,14 +204,16 @@ of an MDIO write. This enables tighter system timestamp bounds in PHY
 implementations of gettimex64.
 
 Take system timestamps around the command register write, then add
-bounds on the transfer time calculated from the peripheral clock rate
-and configured MDC divider.
+the time from the command write until the MDC edge that clocks the
+last data bit, calculated from the peripheral clock rate and the
+configured MDC divider.
 
-The upper bound assumes the write completes no more than 65 MDC
-periods after the command write. On RP1, the time from the command
-write until NSR reports idle was measured with the MDC divisor set to
-48, 64, 96 and 128: at each divisor it was 65.0 periods, using the
-200 MHz pclk rate.
+On RP1 that edge comes 63.5 MDC periods after the command write. This
+was measured on a Raspberry Pi CM5 with its BCM54210PE PHY. The PHY's
+PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC divisor was
+switched between 48 and 128 through /dev/mem. Any error in the number
+of periods would make the PHC offset jump at each switch. After
+compensating for drift, the jump with 63.5 periods was under 2 ns.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
@@ -227,15 +228,17 @@ Implement write_sts to provide system timestamp bounds for completion
 of an MDIO write. This enables tighter system timestamp bounds in PHY
 implementations of gettimex64.
 
-Take system timestamps around the command start, then add bounds on
-the transfer time calculated from the reference clock rate and
-configured MDC divider.
+Take system timestamps around the command start, then add the time
+from the command start until the MDC edge that clocks the last data
+bit, calculated from the reference clock rate and the configured MDC
+divider.
 
-The upper bound assumes the write completes no more than 65 MDC
-periods after the command write. On BCM2711, the time from the command
-write until MDIO_START_BUSY clears was measured with the MDC divider
-set to 9, 14, 19, 29 and 39: at each divider it was 64.0 periods,
-using 200 MHz as the reference rate.
+On BCM2711 that edge comes 64 MDC periods after the command start.
+This was measured on a Raspberry Pi CM4 with its BCM54210PE PHY. The
+PHY's PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC divider
+was switched between 9 and 39 through /dev/mem. Any error in the
+number of periods would make the PHC offset jump at each switch. After
+compensating for drift, the jump with 64 periods was under 10 ns.
 
 Use a 200 MHz reference rate for BCM2711 GENET, whose clock is not
 described in DT.

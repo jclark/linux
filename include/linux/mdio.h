@@ -8,8 +8,6 @@
 
 #include <uapi/linux/mdio.h>
 #include <linux/bitfield.h>
-#include <linux/math64.h>
-#include <linux/time64.h>
 
 struct gpio_desc;
 struct mii_bus;
@@ -573,17 +571,6 @@ static inline void mii_c73_mod_linkmode(unsigned long *adv, u16 *lpa)
 	linkmode_mod_bit(ETHTOOL_LINK_MODE_2500baseX_Full_BIT,
 			 adv, lpa[2] & MDIO_AN_C73_2_2500BASE_KX);
 	/* 5GBASE_KR not implemented */
-}
-
-/* Round the lower bound down and the upper bound up. rate must be nonzero. */
-static inline void mdiobus_sts_bounds(unsigned long rate, u32 divisor,
-				      u32 min_cycles, u32 max_cycles,
-				      u64 *pre_ns, u64 *post_ns)
-{
-	u64 numerator = (u64)divisor * NSEC_PER_SEC;
-
-	*pre_ns = div64_u64(min_cycles * numerator, rate);
-	*post_ns = div64_u64(max_cycles * numerator + rate - 1, rate);
 }
 
 int __mdiobus_read(struct mii_bus *bus, int addr, u32 regnum);
