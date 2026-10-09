@@ -15,6 +15,74 @@ Subject (git format-patch adds `[PATCH net-next 0/5]`):
 net: mdio: add timestamped MDIO writes for PHY gettimex64
 ```
 
+Draft for netdev (in progress):
+
+```
+PTP_SYS_OFFSET_EXTENDED uses gettimex64 to bracket each PHC read with
+system clock reads. Some PHYs have a PTP hardware clock (PHC) that is
+read over MDIO and sometimes multiple MDIO transfers are needed to read
+the clock. This leads to brackets in the tens of microseconds.
+Applications that synchronize the system clock from the PHC typically
+use the midpoint of the bracket as the system time of the PHC reading.
+With multiple transfers, the midpoint of the bracket is typically far
+from the time when the PHC reading actually occurred.
+
+For example, using PTP_SYS_OFFSET_EXTENDED on the Raspberry Pi CM5 to
+synchronize the system clock from the BCM54210PE PHY PHC leads to the
+system clock being 32 µs ahead of the PHC. On the CM4, it is about 7 µs.
+(The difference is because the MDIO clock frequency is higher on the
+CM4: 10 MHz as opposed to 2.08 MHz on the CM5.) The brackets are about
+74 µs on the CM5 and 42 µs on the CM4. See below for measurement
+process.
+
+This series introduces a new MDIO operation that allows PHY drivers to
+ask MDIO bus drivers to compute a bracket for the completion of an MDIO
+write transfer. It then makes bcm-phy-ptp use this operation, and
+implements it for both the macb and UniMAC drivers. A bus driver
+computes a bracket for completion of a transfer by shifting the bracket
+for the start of the MDIO transfer by bounds on its duration.
+
+The effect of this series is to reduce the system clock synchronization
+error from about 32 µs to below 0.1 µs on the CM5, and from about 7 µs
+to below 1 µs on the CM4. PTP_SYS_OFFSET_EXTENDED brackets are reduced
+from 74 µs to about 2.2 µs on the CM5 and from 42 µs to 1.1 µs on the
+CM4.
+
+Note that SPI introduced a similar facility to allow a device driver to
+obtain timestamp bounds from the bus controller in commit 79591b7db21d
+("spi: Add a PTP system timestamp to the transfer structure"). This
+series implements the operation for only one PHY driver. But I surveyed
+other PHY drivers and identified at least two for which this operation
+could be implemented: micrel (specifically LAN8814) and dp83640,
+although they would need updating to use gettimex64 first.
+
+The system clock synchronization accuracy can be measured on the CM5 by
+making use of its second PHC. /dev/ptp0 is the BCM54210PE PHC; /dev/ptp1
+is the macb MAC PHC. PTP_SYS_OFFSET_EXTENDED brackets with macb are
+about 1 µs after upstream commit 9ca4ba242591 ("net: macb: fix ordering
+around PTP timestamp read"). So we can use the following measurement
+approach: select /dev/ptp1 as the PHC for packet timestamping and then
+synchronize it to a PTP grandmaster; synchronize /dev/ptp0 to a PPS from a GPS using ts2phc
+or satpulse; synchronize the system clock from /dev/ptp1 using phc2sys
+or chrony; then measure the offset between the system clock and the
+result of PTP_SYS_OFFSET_EXTENDED.
+
+An alternative way to check, which does not require a PTP grandmaster,
+is to connect the same PPS signal to both the GPIO PPS pin (header pin
+12) and to SYNC_OUT. Then have an NTP server discipline the system clock
+using the GPS PPS signal, and as before measure the offset between the
+system clock and the result of PTP_SYS_OFFSET_EXTENDED. But kernel PPS
+has a significant bias (of the order of 10 µs). However, I have
+developed a tool called ppsbias (https://github.com/jclark/ppsbias) to
+measure this, which works by polling GPIO memory. If you configure the
+NTP server with the offset from ppsbias, then you can get an estimate
+that is accurate to within about 1 µs. The results from ppsbias are
+consistent with results from using PTP with MAC PHC. On a CM4, this is
+the only method available, since /dev/ptp1 is not available.
+```
+
+PR text still to rework (moved into the draft above, or dropped, part by part):
+
 Starting point: the description of raspberrypi/linux PR #7673 as it was on GitHub on
 2026-10-08 (last edited 2026-10-06), converted to plain text. Not yet edited for netdev.
 
