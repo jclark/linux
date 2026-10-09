@@ -202,6 +202,7 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 	    sts->clockid == CLOCK_MONOTONIC_RAW)
 		return 0;
 
+	/* Fail if the clock was stepped; callers must retry anyway. */
 	if (sts->pre_sts.clock_was_set_seq != sts->post_sts.clock_was_set_seq)
 		return -EBUSY;
 
