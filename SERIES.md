@@ -32,7 +32,8 @@ synchronize the system clock from the BCM54210PE PHY PHC leads to the
 system clock being 32 µs ahead of the PHC. On the CM4, it is about 7 µs.
 (The difference is because the MDIO clock frequency is higher on the
 CM4: 10 MHz as opposed to 2.08 MHz on the CM5.) The brackets are about
-74 µs on the CM5 and 42 µs on the CM4. See below for measurement
+74 µs on the CM5 and 42 µs on the CM4. In comparison, the MAC PHC
+on the CM5 has brackets of about 1 µs. See below for measurement
 process.
 
 This series introduces a new MDIO operation that allows PHY drivers to
