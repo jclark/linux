@@ -156,8 +156,8 @@ Use __phy_write_sts() to obtain tighter system timestamp bounds in
 gettimex64 by timestamping completion of the write that triggers
 capture of the PHC time.
 
-The existing framesync path ignores MDIO write errors and this patch
-leaves that unchanged.
+This patch does not try to fix the error handling in the existing
+framesync code, which ignores MDIO write errors.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
