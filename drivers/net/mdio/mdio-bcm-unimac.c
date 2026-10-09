@@ -150,12 +150,13 @@ out:
 	return ret;
 }
 
-static int unimac_mdio_sts_delay(struct unimac_mdio_priv *priv, u64 *delay_ns)
+static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
+				  u64 *pre_ns, u64 *post_ns)
 {
 	u32 cmd, config, divisor;
 	int ret;
 
-	/* The delay assumes the controller is idle. */
+	/* The delays assume the controller is idle. */
 	ret = read_poll_timeout_atomic(unimac_mdio_readl, cmd,
 				       !(cmd & MDIO_START_BUSY),
 				       1, 1000, false, priv, MDIO_CMD);
@@ -164,11 +165,14 @@ static int unimac_mdio_sts_delay(struct unimac_mdio_priv *priv, u64 *delay_ns)
 
 	config = unimac_mdio_readl(priv, MDIO_CFG);
 	divisor = 2 * (((config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK) + 1);
-	/* On BCM2711 the MDC edge that clocks the last bit of a write
-	 * comes 64 periods after the command start.
+	/* On BCM2711 the MDC divider runs freely, so the MDC edge that
+	 * clocks the last bit of a write comes 63.5 to 64.5 periods after
+	 * the command start.
 	 */
-	*delay_ns = div64_ul(64ULL * divisor * NSEC_PER_SEC,
-			     priv->mdio_ref_rate);
+	*pre_ns = div64_ul(127ULL * divisor * NSEC_PER_SEC,
+			   2 * priv->mdio_ref_rate);
+	*post_ns = div64_ul(129ULL * divisor * NSEC_PER_SEC,
+			    2 * priv->mdio_ref_rate);
 
 	return 0;
 }
@@ -177,7 +181,7 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 				 u16 val, struct ptp_system_timestamp *sts)
 {
 	struct unimac_mdio_priv *priv = bus->priv;
-	u64 delay_ns;
+	u64 pre_ns, post_ns;
 	u32 cmd;
 	int ret;
 
@@ -186,7 +190,7 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 		return ret;
 
 	if (sts) {
-		ret = unimac_mdio_sts_delay(priv, &delay_ns);
+		ret = unimac_mdio_sts_delays(priv, &pre_ns, &post_ns);
 		if (ret)
 			goto out;
 	}
@@ -198,8 +202,8 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 
 	if (sts) {
 		unimac_mdio_start_sts(priv, sts);
-		ptp_adjust_system_prets(sts, delay_ns);
-		ptp_adjust_system_postts(sts, delay_ns);
+		ptp_adjust_system_prets(sts, pre_ns);
+		ptp_adjust_system_postts(sts, post_ns);
 	} else {
 		unimac_mdio_start(priv);
 	}

@@ -234,12 +234,15 @@ from the command start until the MDC edge that clocks the last data
 bit, calculated from the reference clock rate and the configured MDC
 divider.
 
-On BCM2711 that edge comes 64 MDC periods after the command start.
-This was measured on a Raspberry Pi CM4 with its BCM54210PE PHY. The
-PHY's PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC divider
-was switched between 9 and 39 through /dev/mem. Any error in the
-number of periods would make the PHC offset jump at each switch. After
-compensating for drift, the jump with 64 periods was under 10 ns.
+On BCM2711 that edge comes 64 MDC periods after the command start, on
+average. This was measured on a Raspberry Pi CM4 with its BCM54210PE
+PHY. The PHY's PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC
+divider was switched between 9 and 39 through /dev/mem. Any error in
+the number of periods would make the PHC offset jump at each switch.
+After compensating for drift, the jump with 64 periods was under 10 ns.
+The MDC divider appears to run freely: the PHC offsets spread evenly
+over one MDC period at each divider. So use 63.5 and 64.5 periods as
+the lower and upper bounds of the delay.
 
 Use a 200 MHz reference rate for BCM2711 GENET, whose clock is not
 described in DT.
