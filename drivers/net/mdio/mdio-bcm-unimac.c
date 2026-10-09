@@ -173,7 +173,8 @@ static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 	 */
 	*pre_ns = div64_ul(127ULL * divisor * NSEC_PER_SEC,
 			   2 * priv->mdio_ref_rate);
-	*post_ns = div64_ul(129ULL * divisor * NSEC_PER_SEC,
+	*post_ns = div64_ul(129ULL * divisor * NSEC_PER_SEC +
+			    2 * priv->mdio_ref_rate - 1,
 			    2 * priv->mdio_ref_rate);
 
 	return 0;
