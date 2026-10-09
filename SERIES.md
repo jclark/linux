@@ -266,11 +266,12 @@ Notes for 5/5, after the `---` line (in the email, not the commit message):
 
 ```
 The 200 MHz BCM2711 GENET reference rate is not documented: it is
-inferred from MDIO busy times measured at several MDC dividers.
-Checking the parent's compatible string in UniMAC to supply it is
-unsatisfactory, and I would welcome suggestions for a better way to
-provide the rate. On other UniMAC users the rate is taken from the
-clock in DT, on the assumption that it is the reference the MDC
-divider applies to, and the delay is assumed to be the same as on
-BCM2711.
+inferred from MDIO busy times measured at several MDC dividers. It is
+also different from the 250 MHz rate assumed by unimac_mdio_clk_set()
+when there is no clock. Checking the parent's compatible string in
+UniMAC to supply it is unsatisfactory, and I would welcome suggestions
+for a better way to provide the rate. On other UniMAC users the rate
+is taken from the clock in DT, on the assumption that it is the
+reference the MDC divider applies to, and the delay is assumed to be
+the same as on BCM2711.
 ```
