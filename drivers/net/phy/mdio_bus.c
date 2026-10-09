@@ -219,6 +219,13 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 		if (!ktime_before(now.monoraw, sts->post_sts.monoraw))
 			return 0;
 
+		/* Cap the wait at 1 ms, which is more than any single
+		 * write's delay. This guards against an aux clock being
+		 * disabled and reenabled, which restarts its raw time.
+		 */
+		if (ktime_sub(sts->post_sts.monoraw, now.monoraw) > NSEC_PER_MSEC)
+			return -EBUSY;
+
 		cpu_relax();
 	}
 }
