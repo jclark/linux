@@ -539,7 +539,8 @@ static inline void __ptp_adjust_snapshot(struct system_time_snapshot *snap,
  *
  * Add @ns to the selected clock's time and to the CLOCK_MONOTONIC_RAW
  * time of the lower bound, and clear its clocksource counter values.
- * @ns is not scaled for the selected clock's frequency correction.
+ * @ns is not scaled for the selected clock's frequency correction, so
+ * the bound is off by @ns times that correction.
  */
 static inline void ptp_adjust_system_prets(struct ptp_system_timestamp *sts,
 					   s64 ns)
@@ -555,7 +556,8 @@ static inline void ptp_adjust_system_prets(struct ptp_system_timestamp *sts,
  *
  * Add @ns to the selected clock's time and to the CLOCK_MONOTONIC_RAW
  * time of the upper bound, and clear its clocksource counter values.
- * @ns is not scaled for the selected clock's frequency correction.
+ * @ns is not scaled for the selected clock's frequency correction, so
+ * the bound is off by @ns times that correction.
  */
 static inline void ptp_adjust_system_postts(struct ptp_system_timestamp *sts,
 					    s64 ns)
