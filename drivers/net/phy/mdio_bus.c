@@ -233,7 +233,7 @@ EXPORT_SYMBOL_GPL(__mdiobus_write_sts);
  */
 bool mdiobus_supports_write_sts(struct mii_bus *bus)
 {
-	return bus->write_sts != NULL;
+	return bus->write_sts;
 }
 EXPORT_SYMBOL_GPL(mdiobus_supports_write_sts);
 
