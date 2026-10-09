@@ -62,10 +62,10 @@ is the macb MAC PHC. PTP_SYS_OFFSET_EXTENDED brackets with macb are
 about 1 µs after upstream commit 9ca4ba242591 ("net: macb: fix ordering
 around PTP timestamp read"). So we can use the following measurement
 approach: select /dev/ptp1 as the PHC for packet timestamping and then
-synchronize it to a PTP grandmaster; synchronize /dev/ptp0 to a PPS from a GPS using ts2phc
-or satpulse; synchronize the system clock from /dev/ptp1 using phc2sys
-or chrony; then measure the offset between the system clock and the
-result of PTP_SYS_OFFSET_EXTENDED.
+synchronize it to a PTP grandmaster; synchronize /dev/ptp0 to a PPS from
+a GPS using ts2phc or satpulse; synchronize the system clock from
+/dev/ptp1 using phc2sys or chrony; then measure the offset between the
+system clock and the result of PTP_SYS_OFFSET_EXTENDED.
 
 An alternative way to check, which does not require a PTP grandmaster,
 is to connect the same PPS signal to both the GPIO PPS pin (header pin
