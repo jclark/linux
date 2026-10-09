@@ -140,8 +140,8 @@ similar facility to allow a device driver to obtain timestamp bounds
 from the bus controller in commit 79591b7db21d ("spi: Add a PTP system
 timestamp to the transfer structure").
 
-A PHY driver using this operation is responsible for fallback if the bus
-driver does not implement it.
+The core provides no fallback, because a bus driver's write may return
+before the transfer has completed.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
