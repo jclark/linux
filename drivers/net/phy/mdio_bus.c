@@ -198,9 +198,8 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 	if (!sts->pre_sts.valid || !sts->post_sts.valid)
 		return -EINVAL;
 
-	/* Setting realtime does not step monotonic or monotonic raw. */
-	if (sts->clockid != CLOCK_REALTIME &&
-	    (sts->clockid < CLOCK_AUX || sts->clockid > CLOCK_AUX_LAST))
+	if (sts->clockid == CLOCK_MONOTONIC ||
+	    sts->clockid == CLOCK_MONOTONIC_RAW)
 		return 0;
 
 	if (sts->pre_sts.clock_was_set_seq != sts->post_sts.clock_was_set_seq)
