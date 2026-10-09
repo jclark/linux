@@ -156,11 +156,23 @@ Use __phy_write_sts() to obtain tighter system timestamp bounds in
 gettimex64 by timestamping completion of the write that triggers
 capture of the PHC time.
 
+The PHY captures its time a short delay after the end of the write.
+End-to-end measurements show that the delay is small, within the
+measurement accuracy of a few tenths of a microsecond.
+
 This patch does not try to fix the error handling in the existing
 framesync code, which ignores MDIO write errors.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
+```
+
+Notes for 2/5, after the `---` line (in the email, not the commit message):
+
+```
+Does Broadcom know the delay from the end of the MDIO write to the
+framesync capture in the BCM54210PE? If so, I can add compensation
+for it.
 ```
 
 ### 3/5
