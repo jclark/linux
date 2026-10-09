@@ -260,5 +260,6 @@ Checking the parent's compatible string in UniMAC to supply it is
 unsatisfactory, and I would welcome suggestions for a better way to
 provide the rate. On other UniMAC users the rate is taken from the
 clock in DT, on the assumption that it is the reference the MDC
-divider applies to.
+divider applies to, and the delay is assumed to be the same as on
+BCM2711.
 ```
