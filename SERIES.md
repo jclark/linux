@@ -120,7 +120,7 @@ the only method available, since /dev/ptp1 is not available.
 
 ### 4/5 net: macb: implement timestamped MDIO writes
 
-- `drivers/net/ethernet/cadence/macb_main.c`
+- `drivers/net/ethernet/cadence/macb.h`, `macb_main.c`
 
 ### 5/5 net: mdio: bcm-unimac: implement timestamped MDIO writes
 

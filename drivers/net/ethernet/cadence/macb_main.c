@@ -402,7 +402,7 @@ static u64 macb_mdio_sts_delay(struct macb *bp)
 		[MACB_CLK_DIV32] = 32,
 		[MACB_CLK_DIV64] = 64,
 	};
-	unsigned long rate = clk_get_rate(bp->pclk);
+	unsigned long rate = READ_ONCE(bp->mdio_sts_rate);
 	u32 config = macb_readl(bp, NCFGR);
 	u32 divisor;
 
@@ -1205,7 +1205,9 @@ static int macb_mdiobus_register(struct macb *bp, struct device_node *mdio_np)
 
 static bool macb_mdio_init_sts(struct macb *bp)
 {
-	return clk_get_rate(bp->pclk) != 0;
+	bp->mdio_sts_rate = clk_get_rate(bp->pclk);
+
+	return bp->mdio_sts_rate != 0;
 }
 
 static int macb_mii_init(struct macb *bp)
@@ -3164,12 +3166,20 @@ static void macb_configure_dma(struct macb *bp)
 
 static void macb_init_hw(struct macb *bp)
 {
+	unsigned long rate;
 	u32 config;
 
 	macb_reset_hw(bp);
 	macb_set_hwaddr(bp);
 
 	config = macb_mdc_clk_div(bp);
+	/* Record the pclk rate the MDC divider is chosen from, for
+	 * write_sts, which can't call clk_get_rate() under the MDIO bus
+	 * lock.
+	 */
+	rate = clk_get_rate(bp->pclk);
+	if (rate)
+		WRITE_ONCE(bp->mdio_sts_rate, rate);
 	/* Make eth data aligned.
 	 * If RSC capable, that offset is ignored by HW.
 	 */
