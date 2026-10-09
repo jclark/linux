@@ -215,6 +215,8 @@ PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC divisor was
 switched between 48 and 128 through /dev/mem. Any error in the number
 of periods would make the PHC offset jump at each switch. After
 compensating for drift, the jump with 63.5 periods was under 2 ns.
+The MDC divider does not appear to run freely: the spread of the PHC
+offsets did not change with the divisor.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
