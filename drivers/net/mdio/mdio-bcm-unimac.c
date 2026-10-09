@@ -311,6 +311,7 @@ static bool unimac_mdio_init_sts(struct unimac_mdio_priv *priv,
 {
 	u32 config;
 
+	/* The reference rate is fixed, so read it once. */
 	priv->mdio_ref_rate = clk_get_rate(priv->clk);
 	/* BCM2711's 200 MHz GENET reference clock is not described in DT. */
 	if (!priv->mdio_ref_rate && dev->parent &&
