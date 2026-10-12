@@ -12,6 +12,7 @@
 #include <linux/net_tstamp.h>
 #include <linux/netdevice.h>
 #include <linux/workqueue.h>
+#include <linux/delay.h> /* TEST ONLY */
 
 #include "bcm-phy-lib.h"
 
@@ -671,6 +672,12 @@ static int bcm_ptp_extts_locked(struct bcm_ptp_private *priv, int on)
 	return 0;
 }
 
+/* TEST ONLY, not for submission */
+static unsigned int test_enable_delay_ms;
+module_param(test_enable_delay_ms, uint, 0644);
+static bool test_old_cancel;
+module_param(test_old_cancel, bool, 0644);
+
 static int bcm_ptp_enable(struct ptp_clock_info *info,
 			  struct ptp_clock_request *rq, int on)
 {
@@ -683,6 +690,10 @@ static int bcm_ptp_enable(struct ptp_clock_info *info,
 	mutex_lock(&priv->mutex);
 
 	was_active = priv->pin_active;
+
+	/* TEST ONLY: widen the window in which the pin work can start */
+	if (test_enable_delay_ms)
+		msleep(test_enable_delay_ms);
 
 	switch (rq->type) {
 	case PTP_CLK_REQ_PEROUT:
@@ -698,6 +709,12 @@ static int bcm_ptp_enable(struct ptp_clock_info *info,
 	default:
 		err = -EOPNOTSUPP;
 		break;
+	}
+
+	/* TEST ONLY: the cancel on disable as it was before the fix */
+	if (test_old_cancel && !err && was_active && !on) {
+		cancel_delayed_work_sync(&priv->pin_work);
+		was_active = false;
 	}
 
 	mutex_unlock(&priv->mutex);
