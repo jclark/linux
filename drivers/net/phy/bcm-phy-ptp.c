@@ -542,7 +542,13 @@ static void bcm_ptp_perout_work(struct work_struct *pin_work)
 	u64 ns, next;
 	u16 ctrl;
 
-	mutex_lock(&priv->mutex);
+	/* bcm_ptp_enable() may hold the mutex while it waits for this
+	 * work to stop, so retry rather than block on it.
+	 */
+	if (!mutex_trylock(&priv->mutex)) {
+		schedule_delayed_work(&priv->pin_work, 1);
+		return;
+	}
 
 	/* no longer running */
 	if (!priv->pin_active) {
@@ -635,7 +641,13 @@ static void bcm_ptp_extts_work(struct work_struct *pin_work)
 	struct timespec64 ts;
 	u16 reg;
 
-	mutex_lock(&priv->mutex);
+	/* bcm_ptp_enable() may hold the mutex while it waits for this
+	 * work to stop, so retry rather than block on it.
+	 */
+	if (!mutex_trylock(&priv->mutex)) {
+		schedule_delayed_work(&priv->pin_work, 1);
+		return;
+	}
 
 	/* no longer running */
 	if (!priv->pin_active) {
