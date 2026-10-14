@@ -133,6 +133,10 @@ struct bcm_ptp_private {
 	struct ptp_clock_info ptp_info;
 	struct ptp_pin_desc pin;
 	struct mutex mutex;
+	/* Serializes bcm_ptp_enable().  The ptp core does not serialize
+	 * enables from the sysfs attributes with those from ioctls.
+	 */
+	struct mutex enable_mutex;
 	struct sk_buff_head tx_queue;
 	int tx_type;
 	bool hwts_rx;
@@ -517,8 +521,7 @@ static long bcm_ptp_do_aux_work(struct ptp_clock_info *info)
 	return reschedule ? 1 : -1;
 }
 
-/* The caller stops pin_work, after releasing priv->mutex. */
-static int bcm_ptp_disable_func(struct bcm_ptp_private *priv)
+static int bcm_ptp_cancel_func(struct bcm_ptp_private *priv)
 {
 	if (!priv->pin_active)
 		return 0;
@@ -588,7 +591,7 @@ static int bcm_ptp_perout_locked(struct bcm_ptp_private *priv,
 	u16 val;
 
 	if (!on)
-		return bcm_ptp_disable_func(priv);
+		return bcm_ptp_cancel_func(priv);
 
 	/* 1PPS */
 	if (req->period.sec != 1 || req->period.nsec != 0)
@@ -615,13 +618,7 @@ static int bcm_ptp_perout_locked(struct bcm_ptp_private *priv,
 	val = ((pulse >> 2) & 0x7f) | (pulse << 7);
 	bcm_phy_write_exp(phydev, SYNC_OUT_2, val);
 
-	if (priv->pin_active)
-		cancel_delayed_work(&priv->pin_work);
-	else
-		INIT_DELAYED_WORK(&priv->pin_work, bcm_ptp_perout_work);
-
 	priv->pin_active = true;
-	schedule_delayed_work(&priv->pin_work, 0);
 
 	return 0;
 }
@@ -664,12 +661,7 @@ static int bcm_ptp_extts_locked(struct bcm_ptp_private *priv, int on)
 	struct phy_device *phydev = priv->phydev;
 
 	if (!on)
-		return bcm_ptp_disable_func(priv);
-
-	if (priv->pin_active)
-		cancel_delayed_work(&priv->pin_work);
-	else
-		INIT_DELAYED_WORK(&priv->pin_work, bcm_ptp_extts_work);
+		return bcm_ptp_cancel_func(priv);
 
 	bcm_ptp_framesync_disable(phydev, priv->nse_ctrl);
 
@@ -678,21 +670,20 @@ static int bcm_ptp_extts_locked(struct bcm_ptp_private *priv, int on)
 	bcm_ptp_framesync_restore(phydev, priv->nse_ctrl);
 
 	priv->pin_active = true;
-	schedule_delayed_work(&priv->pin_work, 0);
 
 	return 0;
 }
 
-static int bcm_ptp_enable(struct ptp_clock_info *info,
-			  struct ptp_clock_request *rq, int on)
+static int __bcm_ptp_enable(struct ptp_clock_info *info,
+			    struct ptp_clock_request *rq, int on,
+			    bool *was_active)
 {
 	struct bcm_ptp_private *priv = ptp2priv(info);
-	bool was_active, stopped;
 	int err = -EBUSY;
 
 	mutex_lock(&priv->mutex);
 
-	was_active = priv->pin_active;
+	*was_active = priv->pin_active;
 
 	switch (rq->type) {
 	case PTP_CLK_REQ_PEROUT:
@@ -708,15 +699,38 @@ static int bcm_ptp_enable(struct ptp_clock_info *info,
 		break;
 	}
 
-	stopped = was_active && !priv->pin_active;
-
 	mutex_unlock(&priv->mutex);
 
-	/* The pin work takes priv->mutex, so cancel it only after
-	 * releasing the mutex.
+	return err;
+}
+
+static int bcm_ptp_enable(struct ptp_clock_info *info,
+			  struct ptp_clock_request *rq, int on)
+{
+	struct bcm_ptp_private *priv = ptp2priv(info);
+	bool was_active;
+	int err;
+
+	mutex_lock(&priv->enable_mutex);
+
+	err = __bcm_ptp_enable(info, rq, on, &was_active);
+
+	/* The pin work takes priv->mutex, so stop it only after
+	 * __bcm_ptp_enable() has released the mutex.  enable_mutex keeps
+	 * other enable requests out until the work has been stopped or
+	 * restarted.
 	 */
-	if (stopped)
+	if (!err && was_active)
 		cancel_delayed_work_sync(&priv->pin_work);
+
+	if (!err && on) {
+		INIT_DELAYED_WORK(&priv->pin_work,
+				  rq->type == PTP_CLK_REQ_PEROUT ?
+				  bcm_ptp_perout_work : bcm_ptp_extts_work);
+		schedule_delayed_work(&priv->pin_work, 0);
+	}
+
+	mutex_unlock(&priv->enable_mutex);
 
 	return err;
 }
@@ -889,7 +903,7 @@ void bcm_ptp_stop(struct bcm_ptp_private *priv)
 {
 	ptp_cancel_worker_sync(priv->ptp_clock);
 	if (priv->pin_active) {
-		bcm_ptp_disable_func(priv);
+		bcm_ptp_cancel_func(priv);
 		cancel_delayed_work_sync(&priv->pin_work);
 	}
 }
@@ -921,6 +935,7 @@ static void bcm_ptp_init(struct bcm_ptp_private *priv)
 	priv->nse_ctrl = NSE_GMODE_EN;
 
 	mutex_init(&priv->mutex);
+	mutex_init(&priv->enable_mutex);
 	skb_queue_head_init(&priv->tx_queue);
 
 	priv->mii_ts.rxtstamp = bcm_ptp_rxtstamp;
