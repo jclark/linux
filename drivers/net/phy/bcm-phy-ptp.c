@@ -517,7 +517,8 @@ static long bcm_ptp_do_aux_work(struct ptp_clock_info *info)
 	return reschedule ? 1 : -1;
 }
 
-static int bcm_ptp_cancel_func(struct bcm_ptp_private *priv)
+/* The caller stops pin_work, after releasing priv->mutex. */
+static int bcm_ptp_disable_func(struct bcm_ptp_private *priv)
 {
 	if (!priv->pin_active)
 		return 0;
@@ -527,8 +528,6 @@ static int bcm_ptp_cancel_func(struct bcm_ptp_private *priv)
 	priv->nse_ctrl &= ~(NSE_SYNC_OUT_MASK | NSE_SYNC1_FRAMESYNC |
 			    NSE_CAPTURE_EN);
 	bcm_phy_write_exp(priv->phydev, NSE_CTRL, priv->nse_ctrl);
-
-	cancel_delayed_work_sync(&priv->pin_work);
 
 	return 0;
 }
@@ -589,7 +588,7 @@ static int bcm_ptp_perout_locked(struct bcm_ptp_private *priv,
 	u16 val;
 
 	if (!on)
-		return bcm_ptp_cancel_func(priv);
+		return bcm_ptp_disable_func(priv);
 
 	/* 1PPS */
 	if (req->period.sec != 1 || req->period.nsec != 0)
@@ -617,10 +616,11 @@ static int bcm_ptp_perout_locked(struct bcm_ptp_private *priv,
 	bcm_phy_write_exp(phydev, SYNC_OUT_2, val);
 
 	if (priv->pin_active)
-		cancel_delayed_work_sync(&priv->pin_work);
+		cancel_delayed_work(&priv->pin_work);
+	else
+		INIT_DELAYED_WORK(&priv->pin_work, bcm_ptp_perout_work);
 
 	priv->pin_active = true;
-	INIT_DELAYED_WORK(&priv->pin_work, bcm_ptp_perout_work);
 	schedule_delayed_work(&priv->pin_work, 0);
 
 	return 0;
@@ -664,10 +664,12 @@ static int bcm_ptp_extts_locked(struct bcm_ptp_private *priv, int on)
 	struct phy_device *phydev = priv->phydev;
 
 	if (!on)
-		return bcm_ptp_cancel_func(priv);
+		return bcm_ptp_disable_func(priv);
 
 	if (priv->pin_active)
-		cancel_delayed_work_sync(&priv->pin_work);
+		cancel_delayed_work(&priv->pin_work);
+	else
+		INIT_DELAYED_WORK(&priv->pin_work, bcm_ptp_extts_work);
 
 	bcm_ptp_framesync_disable(phydev, priv->nse_ctrl);
 
@@ -676,7 +678,6 @@ static int bcm_ptp_extts_locked(struct bcm_ptp_private *priv, int on)
 	bcm_ptp_framesync_restore(phydev, priv->nse_ctrl);
 
 	priv->pin_active = true;
-	INIT_DELAYED_WORK(&priv->pin_work, bcm_ptp_extts_work);
 	schedule_delayed_work(&priv->pin_work, 0);
 
 	return 0;
@@ -686,9 +687,12 @@ static int bcm_ptp_enable(struct ptp_clock_info *info,
 			  struct ptp_clock_request *rq, int on)
 {
 	struct bcm_ptp_private *priv = ptp2priv(info);
+	bool was_active, stopped;
 	int err = -EBUSY;
 
 	mutex_lock(&priv->mutex);
+
+	was_active = priv->pin_active;
 
 	switch (rq->type) {
 	case PTP_CLK_REQ_PEROUT:
@@ -704,7 +708,15 @@ static int bcm_ptp_enable(struct ptp_clock_info *info,
 		break;
 	}
 
+	stopped = was_active && !priv->pin_active;
+
 	mutex_unlock(&priv->mutex);
+
+	/* The pin work takes priv->mutex, so cancel it only after
+	 * releasing the mutex.
+	 */
+	if (stopped)
+		cancel_delayed_work_sync(&priv->pin_work);
 
 	return err;
 }
@@ -876,7 +888,10 @@ static int bcm_ptp_ts_info(struct mii_timestamper *mii_ts,
 void bcm_ptp_stop(struct bcm_ptp_private *priv)
 {
 	ptp_cancel_worker_sync(priv->ptp_clock);
-	bcm_ptp_cancel_func(priv);
+	if (priv->pin_active) {
+		bcm_ptp_disable_func(priv);
+		cancel_delayed_work_sync(&priv->pin_work);
+	}
 }
 EXPORT_SYMBOL_GPL(bcm_ptp_stop);
 
