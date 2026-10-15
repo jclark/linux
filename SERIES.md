@@ -188,6 +188,12 @@ the only method available, since /dev/ptp1 is not available.
   `__bcm_phy_write_exp_sts()`, `bcm_phy_write_exp_sts()`
 - `drivers/net/phy/bcm-phy-ptp.c`: `bcm_ptp_framesync_sts()`, `bcm_ptp_framesync_ts()`
 
+### new in v2, before 3/5: timekeeping: add ktime_scale_raw_ns()
+
+- `kernel/time/timekeeping.c`: `ktime_scale_raw_ns()`
+- `include/linux/timekeeping.h`: its declaration
+- Recipients: add John Stultz <jstultz@google.com> (M:) and Stephen Boyd <sboyd@kernel.org> (R:)
+
 ### 3/5 ptp: add functions to adjust system timestamps
 
 - `include/linux/ptp_clock_kernel.h`: `__ptp_adjust_snapshot()`, `ptp_adjust_system_prets()`,
@@ -250,13 +256,40 @@ framesync capture in the BCM54210PE? If so, I can add compensation
 for it.
 ```
 
+### new in v2, before 3/5
+
+```
+timekeeping: add ktime_scale_raw_ns()
+
+Add ktime_scale_raw_ns(), which converts a duration in monotonic raw
+time into the time of a given clock, using that clock's current
+frequency correction.
+
+A driver that knows how long after a ktime_get_snapshot_id() snapshot
+a hardware event happened can shift the snapshot's monotonic raw time
+by that duration, but not the selected clock's time: that clock runs
+at the frequency-corrected rate. adjtimex() allows the tick length to
+be changed by up to 10%, and chronyd's default maximum slew rate is
+83333 ppm, so adding the raw duration unscaled can move a
+PTP_SYS_OFFSET_EXTENDED bound past the event it is meant to bound.
+
+Scale by tkr_mono.mult / tkr_raw.mult of the clock's timekeeper, as
+adjust_historical_crosststamp() does. For an AUX clock this is the AUX
+clock's own timekeeper.
+
+Signed-off-by: James Clark <jjc@jclark.com>
+Assisted-by: LLM
+```
+
 ### 3/5
 
 ```
 ptp: add functions to adjust system timestamps
 
 Add ptp_adjust_system_prets() and ptp_adjust_system_postts(), which
-shift the pre or post system timestamp by a given duration.
+shift the pre or post system timestamp by a given CLOCK_MONOTONIC_RAW
+duration. The selected clock's time is shifted by the duration scaled
+to that clock's rate with ktime_scale_raw_ns().
 
 An MDIO bus driver can take system timestamps around the command that
 starts a write, and knows how long after that command the write
@@ -265,21 +298,6 @@ the write.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
-```
-
-Notes for 3/5, after the `---` line (in the email, not the commit message):
-
-```
-The time of the selected clock is moved by the CLOCK_MONOTONIC_RAW
-duration without scaling it for that clock's frequency correction,
-because timekeeping has no interface for that. While the clock is
-synchronized the error is negligible: under 2 ns for a 50 ppm
-correction over the 30 us MDIO write time in this series. It is larger
-only while the clock is being slewed. An interface along these lines
-would allow it to be done properly:
-
-	/* Scale a CLOCK_MONOTONIC_RAW duration to the rate of @clock_id */
-	u64 ktime_scale_raw_ns(clockid_t clock_id, u64 ns);
 ```
 
 ### 4/5
