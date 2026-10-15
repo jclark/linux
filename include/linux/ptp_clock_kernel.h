@@ -520,12 +520,19 @@ static inline void ptp_read_system_postts(struct ptp_system_timestamp *sts)
 		ktime_get_snapshot_id(sts->clockid, &sts->post_sts);
 }
 
-static inline void __ptp_adjust_snapshot(struct system_time_snapshot *snap,
+static inline void __ptp_adjust_snapshot(clockid_t clockid,
+					 struct system_time_snapshot *snap,
 					 s64 ns)
 {
+	s64 sys_ns;
+
 	if (!snap->valid)
 		return;
-	snap->systime = ktime_add_ns(snap->systime, ns);
+	if (ns < 0)
+		sys_ns = -(s64)ktime_scale_raw_ns(clockid, -ns);
+	else
+		sys_ns = ktime_scale_raw_ns(clockid, ns);
+	snap->systime = ktime_add_ns(snap->systime, sys_ns);
 	snap->monoraw = ktime_add_ns(snap->monoraw, ns);
 	/* No counter value corresponds to the adjusted times. */
 	snap->cycles = 0;
@@ -539,16 +546,15 @@ static inline void __ptp_adjust_snapshot(struct system_time_snapshot *snap,
  * @sts: system timestamps, or NULL
  * @ns: CLOCK_MONOTONIC_RAW nanoseconds to add
  *
- * Add @ns to the selected clock's time and to the CLOCK_MONOTONIC_RAW
- * time of the lower bound, and clear its clocksource counter values.
- * @ns is not scaled for the selected clock's frequency correction, so
- * the bound is off by @ns times that correction.
+ * Add @ns to the CLOCK_MONOTONIC_RAW time of the lower bound, and @ns
+ * scaled to the selected clock's rate by ktime_scale_raw_ns() to its
+ * time, and clear its clocksource counter values.
  */
 static inline void ptp_adjust_system_prets(struct ptp_system_timestamp *sts,
 					   s64 ns)
 {
 	if (sts)
-		__ptp_adjust_snapshot(&sts->pre_sts, ns);
+		__ptp_adjust_snapshot(sts->clockid, &sts->pre_sts, ns);
 }
 
 /**
@@ -556,16 +562,15 @@ static inline void ptp_adjust_system_prets(struct ptp_system_timestamp *sts,
  * @sts: system timestamps, or NULL
  * @ns: CLOCK_MONOTONIC_RAW nanoseconds to add
  *
- * Add @ns to the selected clock's time and to the CLOCK_MONOTONIC_RAW
- * time of the upper bound, and clear its clocksource counter values.
- * @ns is not scaled for the selected clock's frequency correction, so
- * the bound is off by @ns times that correction.
+ * Add @ns to the CLOCK_MONOTONIC_RAW time of the upper bound, and @ns
+ * scaled to the selected clock's rate by ktime_scale_raw_ns() to its
+ * time, and clear its clocksource counter values.
  */
 static inline void ptp_adjust_system_postts(struct ptp_system_timestamp *sts,
 					    s64 ns)
 {
 	if (sts)
-		__ptp_adjust_snapshot(&sts->post_sts, ns);
+		__ptp_adjust_snapshot(sts->clockid, &sts->post_sts, ns);
 }
 
 #endif
