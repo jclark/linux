@@ -7,6 +7,23 @@ email. It is not part of any patch.
 Base: net-next `45ad84d2800`. Open items: tracking page
 https://claude.ai/artifact/QLFHJhSmeextZBi7rAAUBo
 
+## To review
+
+Committed without jjc's review. Remove an entry once it has been reviewed.
+
+- `2795b502002` timekeeping: add ktime_scale_raw_ns(), scale the ptp shifts with it. The code, and:
+  - `kernel/time/timekeeping.c`: the kernel-doc of `ktime_scale_raw_ns()`; the comments
+    "Aux clocks can be invalid" (copied from `ktime_get_snapshot_id()`) and "tkr_mono and tkr_raw
+    have the same shift"
+  - `include/linux/timekeeping.h`: the comment above the declaration
+  - `include/linux/ptp_clock_kernel.h`: the new kernel-doc paragraph of `ptp_adjust_system_prets()`
+    and `ptp_adjust_system_postts()` ("Add @ns to the CLOCK_MONOTONIC_RAW time ...")
+- `SERIES.md` text:
+  - the timekeeping patch's commit message (new) and its "Changes in v2"
+  - 3/5's first paragraph (now says the shift is scaled) and its "Changes in v2"
+  - the removal of 3/5's old note after `---` sketching `ktime_scale_raw_ns()`
+  - the timekeeping patch's split entry, with John Stultz and Stephen Boyd as new recipients
+
 ## Cover letter
 
 Subject (git format-patch adds `[PATCH net-next 0/5]`):
