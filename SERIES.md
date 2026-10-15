@@ -359,14 +359,20 @@ the time from the command write until the MDC edge that clocks the
 last data bit, calculated from the peripheral clock rate and the
 configured MDC divider.
 
-On RP1 that edge comes 63.5 MDC periods after the command write. This
-was measured on a Raspberry Pi CM5 with its BCM54210PE PHY. The PHY's
+On RP1 that edge comes 63.5 MDC periods after the command write, half
+a period before the end of the 64-bit frame. This was measured on a Raspberry Pi CM5 with its BCM54210PE PHY. The PHY's
 PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC divisor was
 switched between 48 and 128 through /dev/mem. Any error in the number
 of periods would make the PHC offset jump at each switch. After
 compensating for drift, the jump with 63.5 periods was under 2 ns.
 The MDC divider does not appear to run freely: the spread of the PHC
 offsets did not change with the divisor.
+
+Enable write_sts only where the delay has been measured, with a new
+MACB_CAPS_MDIO_WRITE_STS capability that only RP1 sets for now. Other
+platforms can set it once the delay has been measured on them. RP1's
+pclk is clk_sys, whose rate is set by assigned-clock-rates and does
+not change, so read the rate once at probe.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
@@ -375,10 +381,13 @@ Assisted-by: LLM
 Notes for 4/5, after the `---` line (in the email, not the commit message):
 
 ```
-The 63.5-period delay has been measured only on RP1, but the code
-assumes it holds for all MACB and GEM variants. I am not sure whether
-that is a reasonable assumption; if not, write_sts could be enabled
-only for RP1.
+Changes in v2:
+- Enable write_sts only on RP1, with MACB_CAPS_MDIO_WRITE_STS (Sashiko)
+- Read the pclk rate once at probe, in place of refreshing it in
+  macb_init_hw() (Sashiko)
+- A separate macb_mdio_write_c22_sts(), leaving macb_mdio_write_c22()
+  unchanged, as Andrew asked for UniMAC
+- Express the delay with MDIO_C22_FRAME_BITS (Andrew)
 ```
 
 ### 5/5
