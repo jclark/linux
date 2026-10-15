@@ -161,6 +161,11 @@ struct bcm_ptp_capture {
 #define BCM_MAX_PULSE_8NS	((1U << 9) - 1)
 #define BCM_MAX_PERIOD_8NS	((1U << 30) - 1)
 
+/* Allowed for the PHY to capture its time after the last MDC edge of
+ * the framesync write.
+ */
+#define BCM_FRAMESYNC_CAPTURE_NS	300
+
 #define BRCM_PHY_MODEL(phydev) \
 	((phydev)->drv->phy_id & (phydev)->drv->phy_id_mask)
 
@@ -237,6 +242,8 @@ static int bcm_ptp_framesync_ts(struct phy_device *phydev,
 		 * but still poll for any triggered capture
 		 */
 		err = bcm_ptp_framesync_sts(phydev, ctrl | NSE_CAPTURE_EN, sts);
+		if (!err)
+			ptp_adjust_system_postts(sts, BCM_FRAMESYNC_CAPTURE_NS);
 	} else {
 		ptp_read_system_prets(sts);
 		bcm_ptp_framesync(phydev, ctrl | NSE_CAPTURE_EN);

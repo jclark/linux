@@ -178,6 +178,9 @@ the only method available, since /dev/ptp1 is not available.
 
 ## Split
 
+v2 order (#22): 1/5 mdio core, the new timekeeping patch, 3/5 ptp, 2/5 Broadcom PHY (it uses
+`ptp_adjust_system_postts()`), 4/5 macb, 5/5 UniMAC. The headings below keep v1's numbers.
+
 Each patch's changes since v1 are listed under "Changes in v2" in its notes after the `---` line
 (below its commit message). Whenever a change goes into the working tree, add an entry there for
 each patch it touches, in the same commit as the change.
@@ -259,13 +262,17 @@ Changes in v2:
 ```
 net: phy: broadcom: use timestamped MDIO writes in gettimex64
 
-Use __phy_write_sts() to obtain tighter system timestamp bounds in
+When the MDIO bus provides the write_sts operation, use
+__phy_write_sts() to obtain tighter system timestamp bounds in
 gettimex64 by timestamping completion of the write that triggers
 capture of the PHC time.
 
-The PHY captures its time a short delay after the end of the write.
-End-to-end measurements show that the delay is small, within the
-measurement accuracy of a few tenths of a microsecond.
+The PHY captures its time a short delay after the last MDC edge of the
+write, so add 300 ns to the upper bound. On a Raspberry Pi CM4, with
+the same PPS signal on the PHY's SYNC pin and on GPIO 18, the PHC was
+read with PTP_SYS_OFFSET_EXTENDED while the system time of each pulse
+was measured by polling the GPIO. No capture out of 14,184 fell past
+the upper bound, and the delay was at most about 0.34 us.
 
 This patch does not try to fix the error handling in the existing
 framesync code, which ignores MDIO write errors.
@@ -277,9 +284,15 @@ Assisted-by: LLM
 Notes for 2/5, after the `---` line (in the email, not the commit message):
 
 ```
+Changes in v2:
+- Add 300 ns to the upper bound for the PHY's capture delay (Sashiko)
+- Say that the tighter bounds need a bus driver with write_sts
+  (Sashiko)
+- Moved after the ptp patch, whose helper it now uses
+
 Does Broadcom know the delay from the end of the MDIO write to the
-framesync capture in the BCM54210PE? If so, I can add compensation
-for it.
+framesync capture in the BCM54210PE? If so, I can use it in place of
+the measured margin.
 ```
 
 ### new in v2, before 3/5
