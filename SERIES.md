@@ -187,7 +187,7 @@ each patch it touches, in the same commit as the change.
 - `include/linux/phy.h`: `write_sts` in `struct mii_bus`; `phy_supports_write_sts()`;
   `__phy_write_sts()`
 - `include/linux/mdio.h`: declarations of `__mdiobus_write_sts()` and
-  `mdiobus_supports_write_sts()`
+  `mdiobus_supports_write_sts()`; `MDIO_C22_FRAME_BITS`, `MDIO_PREAMBLE_BITS`
 - `drivers/net/phy/mdio_bus.c`: `__mdiobus_write_sts()`, `mdiobus_supports_write_sts()`
 - `drivers/net/mdio/mdio-mux.c`: `mdio_mux_write_sts()`, forwarding `write_sts` to the parent bus
 
@@ -233,6 +233,10 @@ Add a PTP system timestamp to the transfer structure").
 The core provides no fallback, because a bus driver's write may return
 before the transfer has completed.
 
+Also add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS, the lengths of a
+clause 22 frame and of its preamble, for bus drivers that work out
+from the MDC period when a write completes.
+
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
@@ -246,6 +250,8 @@ Changes in v2:
 - Say that write_sts and __mdiobus_write_sts() do clause 22 writes
   (Andrew)
 - Wrap __phy_write_sts() to 80 columns (checkpatch)
+- Add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS, so that bus drivers
+  share the frame length (Andrew)
 ```
 
 ### 2/5
@@ -389,18 +395,27 @@ from the command start until the MDC edge that clocks the last data
 bit, calculated from the reference clock rate and the configured MDC
 divider.
 
-On BCM2711 that edge comes 64 MDC periods after the command start, on
-average. This was measured on a Raspberry Pi CM4 with its BCM54210PE
-PHY. The PHY's PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC
-divider was switched between 9 and 39 through /dev/mem. Any error in
-the number of periods would make the PHC offset jump at each switch.
-After compensating for drift, the jump with 64 periods was under 10 ns.
-The MDC divider appears to run freely: the PHC offsets spread evenly
-over one MDC period at each divider. So use 63.5 and 64.5 periods as
-the lower and upper bounds of the delay.
+The edge comes half an MDC period before the end of the 64-bit frame,
+or of the 32-bit frame when the preamble is suppressed. On BCM2711 the
+MDC divider runs freely, so the frame starts up to one period after
+the command start, and the edge comes 63.5 to 64.5 periods after it.
+This was measured on a Raspberry Pi CM4 with its BCM54210PE PHY. The
+PHY's PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC divider
+field was switched between 9 and 39 through /dev/mem. The delay grew
+by 640 ns for each step of the divider field, which is 64 periods of
+the 200 MHz reference clock: with 64 periods, the jump in the PHC
+offset at each switch was under 10 ns after compensating for drift.
+The PHC offsets spread evenly over one MDC period at each divider. A
+UniMAC whose divider restarted with the command would put the edge at
+63.5 periods, still within these bounds. The frame without preamble
+has not been measured.
 
-Use a 200 MHz reference rate for BCM2711 GENET, whose clock is not
-described in DT.
+Take the reference rate from a clock on the mdio node, and offer
+write_sts only when there is one. When GENET creates the UniMAC
+device, the clock it passes is its own main clock, which gates
+register access but is not the MDC reference. No in-tree DT gives an
+mdio node a clock yet. For BCM2711, the GISB clock, which MDC is
+divided from, is being added to clk-bcm2835 separately.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
@@ -409,14 +424,19 @@ Assisted-by: LLM
 Notes for 5/5, after the `---` line (in the email, not the commit message):
 
 ```
-When there is no clock, unimac_mdio_clk_set() assumes a 250 MHz
-reference rate, and no in-tree DT gives GENET or UniMAC a clock. For
-BCM2711 I have no documentation of the reference rate or of the clock
-that supplies it, but MDIO busy times measured at several MDC dividers
-fit a rate of 200 MHz. This patch checks the parent's compatible string,
-which is unsatisfactory. I would prefer to get the rate from DT, and
-would welcome suggestions for the right DT description.
+Changes in v2:
+- Take the reference rate from a clock on the mdio node, in place of
+  the 200 MHz assumed for BCM2711 after checking the parent's
+  compatible (Florian, Nicolai)
+- Allow for a suppressed preamble with a 32-bit frame, in place of not
+  offering write_sts (Andrew)
+- A separate unimac_mdio_write_sts(), leaving unimac_mdio_write()
+  unchanged (Andrew)
+- Express the delay with MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS
+  (Andrew)
+- Wrap a line to 80 columns (checkpatch)
 
-The delay of 63.5 to 64.5 MDC periods has been measured only on
-BCM2711, but the code assumes it holds for any UniMAC.
+On BCM2711 this has no effect until the mdio node gets its clock.
+Nicolai Buchwitz's patches adding the GISB clock:
+https://lore.kernel.org/netdev/41c32f5a6f38ec9df8a79ce896912fb9@tipi-net.de/
 ```

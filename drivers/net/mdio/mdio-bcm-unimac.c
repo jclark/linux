@@ -150,10 +150,35 @@ out:
 	return ret;
 }
 
+static int unimac_mdio_write(struct mii_bus *bus, int phy_id,
+			     int reg, u16 val)
+{
+	struct unimac_mdio_priv *priv = bus->priv;
+	u32 cmd;
+	int ret;
+
+	ret = clk_prepare_enable(priv->clk);
+	if (ret)
+		return ret;
+
+	/* Prepare the write operation */
+	cmd = MDIO_WR | (phy_id << MDIO_PMD_SHIFT) |
+		(reg << MDIO_REG_SHIFT) | (0xffff & val);
+	unimac_mdio_writel(priv, cmd, MDIO_CMD);
+
+	unimac_mdio_start(priv);
+
+	ret = priv->wait_func(priv->wait_func_data);
+	clk_disable_unprepare(priv->clk);
+
+	return ret;
+}
+
 static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 				  u64 *pre_ns, u64 *post_ns)
 {
-	u32 cmd, config, divisor;
+	u32 cmd, config, div, divisor, bits;
+	u64 ref_rate2 = 2ULL * priv->mdio_ref_rate;
 	int ret;
 
 	/* The delays assume the controller is idle. */
@@ -164,18 +189,21 @@ static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 		return ret;
 
 	config = unimac_mdio_readl(priv, MDIO_CFG);
+	div = (config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK;
+	divisor = 2 * (div + 1);
+	bits = MDIO_C22_FRAME_BITS;
 	if (config & MDIO_SUPP_PREAMBLE)
-		return -EIO;
-	divisor = 2 * (((config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK) + 1);
-	/* On BCM2711 the MDC divider runs freely, so the MDC edge that
-	 * clocks the last bit of a write comes 63.5 to 64.5 periods after
-	 * the command start.
+		bits -= MDIO_PREAMBLE_BITS;
+	/* The MDC edge that clocks the last bit comes half a period
+	 * before the end of the frame. The MDC divider runs freely
+	 * (measured on BCM2711), so the frame starts up to one period
+	 * after the command start: the edge comes bits - 0.5 to
+	 * bits + 0.5 periods after it.
 	 */
-	*pre_ns = div64_ul(127ULL * divisor * NSEC_PER_SEC,
-			   2 * priv->mdio_ref_rate);
-	*post_ns = div64_ul(129ULL * divisor * NSEC_PER_SEC +
-			    2 * priv->mdio_ref_rate - 1,
-			    2 * priv->mdio_ref_rate);
+	*pre_ns = div64_u64((2ULL * bits - 1) * divisor * NSEC_PER_SEC,
+			    ref_rate2);
+	*post_ns = div64_u64((2ULL * bits + 1) * divisor * NSEC_PER_SEC +
+			     ref_rate2 - 1, ref_rate2);
 
 	return 0;
 }
@@ -192,36 +220,24 @@ static int unimac_mdio_write_sts(struct mii_bus *bus, int phy_id, int reg,
 	if (ret)
 		return ret;
 
-	if (sts) {
-		ret = unimac_mdio_sts_delays(priv, &pre_ns, &post_ns);
-		if (ret)
-			goto out;
-	}
+	ret = unimac_mdio_sts_delays(priv, &pre_ns, &post_ns);
+	if (ret)
+		goto out;
 
 	/* Prepare the write operation */
 	cmd = MDIO_WR | (phy_id << MDIO_PMD_SHIFT) |
 		(reg << MDIO_REG_SHIFT) | (0xffff & val);
 	unimac_mdio_writel(priv, cmd, MDIO_CMD);
 
-	if (sts) {
-		unimac_mdio_start_sts(priv, sts);
-		ptp_adjust_system_prets(sts, pre_ns);
-		ptp_adjust_system_postts(sts, post_ns);
-	} else {
-		unimac_mdio_start(priv);
-	}
+	unimac_mdio_start_sts(priv, sts);
+	ptp_adjust_system_prets(sts, pre_ns);
+	ptp_adjust_system_postts(sts, post_ns);
 
 	ret = priv->wait_func(priv->wait_func_data);
 out:
 	clk_disable_unprepare(priv->clk);
 
 	return ret;
-}
-
-static int unimac_mdio_write(struct mii_bus *bus, int phy_id,
-			     int reg, u16 val)
-{
-	return unimac_mdio_write_sts(bus, phy_id, reg, val, NULL);
 }
 
 /* Workaround for integrated BCM7xxx Gigabit PHYs which have a problem with
@@ -308,27 +324,12 @@ out:
 }
 
 static bool unimac_mdio_init_sts(struct unimac_mdio_priv *priv,
-				 struct device *dev)
+				 struct clk *ref_clk)
 {
-	u32 config;
-
 	/* The reference rate is fixed, so read it once. */
-	priv->mdio_ref_rate = clk_get_rate(priv->clk);
-	/* BCM2711's 200 MHz GENET reference clock is not described in DT. */
-	if (!priv->mdio_ref_rate && dev->parent &&
-	    of_device_is_compatible(dev->parent->of_node,
-				    "brcm,bcm2711-genet-v5"))
-		priv->mdio_ref_rate = 200000000;
+	priv->mdio_ref_rate = clk_get_rate(ref_clk);
 
-	if (!priv->mdio_ref_rate)
-		return false;
-
-	if (clk_prepare_enable(priv->clk))
-		return false;
-	config = unimac_mdio_readl(priv, MDIO_CFG);
-	clk_disable_unprepare(priv->clk);
-
-	return !(config & MDIO_SUPP_PREAMBLE);
+	return priv->mdio_ref_rate != 0;
 }
 
 static int unimac_mdio_probe(struct platform_device *pdev)
@@ -336,6 +337,7 @@ static int unimac_mdio_probe(struct platform_device *pdev)
 	struct unimac_mdio_pdata *pdata = pdev->dev.platform_data;
 	struct unimac_mdio_priv *priv;
 	struct device_node *np;
+	struct clk *ref_clk;
 	struct mii_bus *bus;
 	struct resource *r;
 	int ret;
@@ -374,11 +376,16 @@ static int unimac_mdio_probe(struct platform_device *pdev)
 		priv->wait_func_data = pdata->wait_func_data;
 		bus->phy_mask = ~pdata->phy_mask;
 		priv->clk = pdata->clk;
+		/* For write_sts: the MDC reference clock, if the mdio
+		 * node has one.
+		 */
+		ref_clk = devm_clk_get_optional(&pdev->dev, NULL);
 	} else {
 		bus->name = "unimac MII bus";
 		priv->wait_func_data = priv;
 		priv->wait_func = unimac_mdio_poll;
 		priv->clk = devm_clk_get_optional(&pdev->dev, NULL);
+		ref_clk = priv->clk;
 	}
 
 	if (IS_ERR(priv->clk)) {
@@ -386,10 +393,15 @@ static int unimac_mdio_probe(struct platform_device *pdev)
 		goto out_mdio_free;
 	}
 
+	if (IS_ERR(ref_clk)) {
+		ret = PTR_ERR(ref_clk);
+		goto out_mdio_free;
+	}
+
 	bus->parent = &pdev->dev;
 	bus->read = unimac_mdio_read;
 	bus->write = unimac_mdio_write;
-	if (unimac_mdio_init_sts(priv, &pdev->dev))
+	if (unimac_mdio_init_sts(priv, ref_clk))
 		bus->write_sts = unimac_mdio_write_sts;
 	bus->reset = unimac_mdio_reset;
 	snprintf(bus->id, MII_BUS_ID_SIZE, "%s-%d", pdev->name, pdev->id);

@@ -157,6 +157,12 @@ struct mdio_if_info {
 #define MDIO_SUPPORTS_C45		2
 #define MDIO_EMULATE_C22		4
 
+/* Bits in a clause 22 frame, from the start of its preamble to the end
+ * of its data, and bits in the preamble (IEEE 802.3 22.2.4.5).
+ */
+#define MDIO_C22_FRAME_BITS		64
+#define MDIO_PREAMBLE_BITS		32
+
 struct ethtool_cmd;
 struct ethtool_pauseparam;
 extern int mdio45_probe(struct mdio_if_info *mdio, int prtad);
