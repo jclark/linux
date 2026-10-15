@@ -236,6 +236,14 @@ Add a PTP system timestamp to the transfer structure").
 The core provides no fallback, because a bus driver's write may return
 before the transfer has completed.
 
+An aux clock that is disabled and re-enabled restarts its raw time
+with the same clock_was_set_seq, so the core cannot always tell that
+the clock was reset during a write. Such a reset can fall within any
+PTP_SYS_OFFSET_EXTENDED sample, whatever the driver, and
+ptp_sys_offset_extended() does not check for it, so detecting it is
+left to the PTP core. The MDIO core only caps its wait for the upper
+bound, so that a reset cannot make it spin.
+
 Also add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS, the lengths of a
 clause 22 frame and of its preamble, for bus drivers that work out
 from the MDC period when a write completes.
@@ -255,6 +263,11 @@ Changes in v2:
 - Wrap __phy_write_sts() to 80 columns (checkpatch)
 - Add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS, so that bus drivers
   share the frame length (Andrew)
+- Reword the comments on the clock-step check and on the 1 ms cap,
+  which is on the wait after write_sts() returns, not on the write
+  (Andrew, Sashiko)
+- Say why detecting an aux clock reset is left to the PTP core
+  (Sashiko)
 ```
 
 ### 2/5

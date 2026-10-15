@@ -199,7 +199,7 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 	    sts->clockid == CLOCK_MONOTONIC_RAW)
 		return 0;
 
-	/* Fail if the clock was stepped; callers must retry anyway. */
+	/* Fail if the clock was stepped; the timestamps can't be used. */
 	if (sts->pre_sts.clock_was_set_seq != sts->post_sts.clock_was_set_seq)
 		return -EBUSY;
 
@@ -216,9 +216,13 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 		if (!ktime_before(now.monoraw, sts->post_sts.monoraw))
 			return 0;
 
-		/* Cap the wait at 1 ms, which is more than any single
-		 * write's delay. This guards against an aux clock being
-		 * disabled and reenabled, which restarts its raw time.
+		/* Cap the wait at 1 ms. This limits the wait after
+		 * write_sts() returns, not the write: a driver that returns
+		 * before the transfer completes, at worst as soon as it
+		 * starts, leaves at most one frame time to wait, and one
+		 * that returns after the last bit leaves none. The cap
+		 * stops an aux clock reset, which restarts its raw time,
+		 * from making this spin; it doesn't detect every reset.
 		 */
 		if (!ktime_before(ktime_get_raw(), deadline))
 			return -EBUSY;
