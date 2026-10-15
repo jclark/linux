@@ -125,7 +125,7 @@ ppsbias.
 
 Changes in v2:
 - New timekeeping patch adding ktime_scale_raw_ns(); the ptp helpers
-  use it to scale the shift by the selected clock's frequency (Sashiko)
+  use it to scale the shift by the selected clock's frequency
 - mdio core: the sts argument is required, the documentation says
   clause 22, and MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS give the
   bus drivers the frame length (Andrew); comments on the clock-step
@@ -287,13 +287,11 @@ Add ktime_scale_raw_ns(), which scales a duration in monotonic raw
 time by the frequency of a given clock relative to monotonic raw, as
 set by that clock's current frequency correction.
 
-A driver that knows how long after a ktime_get_snapshot_id() snapshot
-a hardware event happened can shift the snapshot's monotonic raw time
-by that duration, but not the selected clock's time: that clock runs
-at its corrected frequency. adjtimex() allows the tick length to
-be changed by up to 10%, and chronyd's default maximum slew rate is
-83333 ppm, so adding the raw duration unscaled can move a
-PTP_SYS_OFFSET_EXTENDED bound past the event it is meant to bound.
+The ptp helpers added in the next patch shift the system timestamps
+taken by ktime_get_snapshot_id() by a duration measured in monotonic
+raw time. To shift the selected clock's time by the same interval, the
+duration has to be scaled by that clock's frequency relative to
+monotonic raw.
 
 Scale by tkr_mono.mult / tkr_raw.mult of the clock's timekeeper, as
 adjust_historical_crosststamp() does. For an AUX clock this is the AUX
@@ -307,10 +305,9 @@ Notes for the timekeeping patch, after the `---` line (in the email, not the com
 
 ```
 Changes in v2:
-- New patch, for the ptp helpers in the next patch. Sashiko pointed out
-  on v1 that they added an unscaled CLOCK_MONOTONIC_RAW duration to the
-  selected clock's time:
-  https://lore.kernel.org/netdev/179164505716.434549.15283965048051692486@kernel.org/
+- New patch, for the ptp helpers in the next patch. In v1 they added
+  the CLOCK_MONOTONIC_RAW duration to the selected clock's time
+  unscaled, as the v1 notes for that patch said.
 ```
 
 ### 3/5
@@ -338,9 +335,8 @@ Notes for 3/5, after the `---` line (in the email, not the commit message):
 ```
 Changes in v2:
 - Scale the shift of the selected clock's time by that clock's
-  frequency relative to CLOCK_MONOTONIC_RAW with ktime_scale_raw_ns()
-  (Sashiko), in place of adding the CLOCK_MONOTONIC_RAW duration
-  unscaled.
+  frequency relative to CLOCK_MONOTONIC_RAW with ktime_scale_raw_ns(),
+  in place of adding the CLOCK_MONOTONIC_RAW duration unscaled.
 ```
 
 ### 4/5

@@ -1340,11 +1340,7 @@ EXPORT_SYMBOL_GPL(ktime_get_snapshot_id);
  *
  * Multiply a duration measured in monotonic raw time by the frequency of
  * @clock_id relative to monotonic raw, which is set by the frequency
- * correction of @clock_id in effect now. A caller that knows how long
- * after a ktime_get_snapshot_id() snapshot an event happened can use
- * this to shift the snapshot's time of @clock_id by the same amount as
- * its monotonic raw time. If the frequency correction changed during the
- * duration, the result is off by @ns times the change.
+ * correction of @clock_id in effect now.
  *
  * Return: @ns scaled by the frequency of @clock_id relative to monotonic
  * raw. @ns unchanged for CLOCK_MONOTONIC_RAW, or if @clock_id is an AUX
@@ -1380,7 +1376,6 @@ u64 ktime_scale_raw_ns(clockid_t clock_id, u64 ns)
 	do {
 		seq = read_seqcount_begin(&tkd->seq);
 
-		/* Aux clocks can be invalid */
 		if (!tk->clock_valid)
 			return ns;
 
@@ -1388,7 +1383,6 @@ u64 ktime_scale_raw_ns(clockid_t clock_id, u64 ns)
 		mult_raw = tk->tkr_raw.mult;
 	} while (read_seqcount_retry(&tkd->seq, seq));
 
-	/* tkr_mono and tkr_raw have the same shift */
 	return mul_u64_u32_div(ns, mult_sys, mult_raw);
 }
 EXPORT_SYMBOL_GPL(ktime_scale_raw_ns);
