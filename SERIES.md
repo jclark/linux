@@ -125,7 +125,7 @@ ppsbias.
 
 Changes in v2:
 - New timekeeping patch adding ktime_scale_raw_ns(); the ptp helpers
-  use it to scale the shift to the selected clock's rate (Sashiko)
+  use it to scale the shift by the selected clock's frequency (Sashiko)
 - mdio core: the sts argument is required, the documentation says
   clause 22, and MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS give the
   bus drivers the frame length (Andrew); comments on the clock-step
@@ -283,14 +283,14 @@ the measured margin.
 ```
 timekeeping: add ktime_scale_raw_ns()
 
-Add ktime_scale_raw_ns(), which converts a duration in monotonic raw
-time into the time of a given clock, using that clock's current
-frequency correction.
+Add ktime_scale_raw_ns(), which scales a duration in monotonic raw
+time by the frequency of a given clock relative to monotonic raw, as
+set by that clock's current frequency correction.
 
 A driver that knows how long after a ktime_get_snapshot_id() snapshot
 a hardware event happened can shift the snapshot's monotonic raw time
 by that duration, but not the selected clock's time: that clock runs
-at the frequency-corrected rate. adjtimex() allows the tick length to
+at its corrected frequency. adjtimex() allows the tick length to
 be changed by up to 10%, and chronyd's default maximum slew rate is
 83333 ppm, so adding the raw duration unscaled can move a
 PTP_SYS_OFFSET_EXTENDED bound past the event it is meant to bound.
@@ -321,7 +321,8 @@ ptp: add functions to adjust system timestamps
 Add ptp_adjust_system_prets() and ptp_adjust_system_postts(), which
 shift the pre or post system timestamp by a given CLOCK_MONOTONIC_RAW
 duration. The selected clock's time is shifted by the duration scaled
-to that clock's rate with ktime_scale_raw_ns().
+by that clock's frequency relative to CLOCK_MONOTONIC_RAW, with
+ktime_scale_raw_ns().
 
 An MDIO bus driver can take system timestamps around the command that
 starts a write, and knows how long after that command the write
@@ -336,9 +337,10 @@ Notes for 3/5, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
-- Scale the shift of the selected clock's time to that clock's rate
-  with ktime_scale_raw_ns() (Sashiko), in place of adding the
-  CLOCK_MONOTONIC_RAW duration unscaled.
+- Scale the shift of the selected clock's time by that clock's
+  frequency relative to CLOCK_MONOTONIC_RAW with ktime_scale_raw_ns()
+  (Sashiko), in place of adding the CLOCK_MONOTONIC_RAW duration
+  unscaled.
 ```
 
 ### 4/5

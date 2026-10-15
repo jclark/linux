@@ -1333,22 +1333,22 @@ void ktime_get_snapshot_id(clockid_t clock_id, struct system_time_snapshot *syst
 EXPORT_SYMBOL_GPL(ktime_get_snapshot_id);
 
 /**
- * ktime_scale_raw_ns - Scale a monotonic raw duration to a clock's rate
- * @clock_id:	The clock ID whose rate to scale to
+ * ktime_scale_raw_ns - Scale a monotonic raw duration by a clock's frequency
+ * @clock_id:	The clock ID whose frequency to scale by
  * @ns:		Duration in nanoseconds of the monotonic raw clock related
  *		to @clock_id
  *
- * Convert a duration measured in monotonic raw time into the time of
- * @clock_id, using the frequency correction of @clock_id in effect now.
- * A caller that knows how long after a ktime_get_snapshot_id() snapshot
- * an event happened can use this to shift the snapshot's time of
- * @clock_id by the same amount as its monotonic raw time. If the
- * frequency correction changed during the duration, the result is off by
- * @ns times the change.
+ * Multiply a duration measured in monotonic raw time by the frequency of
+ * @clock_id relative to monotonic raw, which is set by the frequency
+ * correction of @clock_id in effect now. A caller that knows how long
+ * after a ktime_get_snapshot_id() snapshot an event happened can use
+ * this to shift the snapshot's time of @clock_id by the same amount as
+ * its monotonic raw time. If the frequency correction changed during the
+ * duration, the result is off by @ns times the change.
  *
- * Return: @ns scaled by the ratio of the rate of @clock_id to its
- * monotonic raw rate. @ns unchanged for CLOCK_MONOTONIC_RAW, or if
- * @clock_id is an AUX clock that is not enabled.
+ * Return: @ns scaled by the frequency of @clock_id relative to monotonic
+ * raw. @ns unchanged for CLOCK_MONOTONIC_RAW, or if @clock_id is an AUX
+ * clock that is not enabled.
  */
 u64 ktime_scale_raw_ns(clockid_t clock_id, u64 ns)
 {

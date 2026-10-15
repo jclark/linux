@@ -547,8 +547,9 @@ static inline void __ptp_adjust_snapshot(clockid_t clockid,
  * @ns: CLOCK_MONOTONIC_RAW nanoseconds to add
  *
  * Add @ns to the CLOCK_MONOTONIC_RAW time of the lower bound, and @ns
- * scaled to the selected clock's rate by ktime_scale_raw_ns() to its
- * time, and clear its clocksource counter values.
+ * scaled by the selected clock's frequency relative to
+ * CLOCK_MONOTONIC_RAW (ktime_scale_raw_ns()) to its time, and clear its
+ * clocksource counter values.
  */
 static inline void ptp_adjust_system_prets(struct ptp_system_timestamp *sts,
 					   s64 ns)
@@ -563,8 +564,9 @@ static inline void ptp_adjust_system_prets(struct ptp_system_timestamp *sts,
  * @ns: CLOCK_MONOTONIC_RAW nanoseconds to add
  *
  * Add @ns to the CLOCK_MONOTONIC_RAW time of the upper bound, and @ns
- * scaled to the selected clock's rate by ktime_scale_raw_ns() to its
- * time, and clear its clocksource counter values.
+ * scaled by the selected clock's frequency relative to
+ * CLOCK_MONOTONIC_RAW (ktime_scale_raw_ns()) to its time, and clear its
+ * clocksource counter values.
  */
 static inline void ptp_adjust_system_postts(struct ptp_system_timestamp *sts,
 					    s64 ns)
