@@ -173,6 +173,10 @@ the only method available, since /dev/ptp1 is not available.
 
 ## Split
 
+Each patch's changes since v1 are listed under "Changes in v2" in its notes after the `---` line
+(below its commit message). Whenever a change goes into the working tree, add an entry there for
+each patch it touches, in the same commit as the change.
+
 ### 1/5 net: mdio: add timestamped write operation
 
 - `include/linux/phy.h`: `write_sts` in `struct mii_bus`; `phy_supports_write_sts()`;
@@ -281,6 +285,16 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
+Notes for the timekeeping patch, after the `---` line (in the email, not the commit message):
+
+```
+Changes in v2:
+- New patch, for the ptp helpers in the next patch. Sashiko pointed out
+  on v1 that they added an unscaled CLOCK_MONOTONIC_RAW duration to the
+  selected clock's time:
+  https://lore.kernel.org/netdev/179164505716.434549.15283965048051692486@kernel.org/
+```
+
 ### 3/5
 
 ```
@@ -298,6 +312,15 @@ the write.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
+```
+
+Notes for 3/5, after the `---` line (in the email, not the commit message):
+
+```
+Changes in v2:
+- Scale the shift of the selected clock's time to that clock's rate
+  with ktime_scale_raw_ns() (Sashiko), in place of adding the
+  CLOCK_MONOTONIC_RAW duration unscaled.
 ```
 
 ### 4/5
