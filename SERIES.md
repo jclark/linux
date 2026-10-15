@@ -23,6 +23,12 @@ Committed without jjc's review. Remove an entry once it has been reviewed.
   - 3/5's first paragraph (now says the shift is scaled) and its "Changes in v2"
   - the removal of 3/5's old note after `---` sketching `ktime_scale_raw_ns()`
   - the timekeeping patch's split entry, with John Stultz and Stephen Boyd as new recipients
+- mdio core: sts required (#28), say C22 (#29), wrap `__phy_write_sts()` (#3). The code, and:
+  - `drivers/net/phy/mdio_bus.c`: the `__mdiobus_write_sts()` kernel-doc (@sts, Return, and
+    "Write a MDIO bus register with a clause 22 write transfer, ...")
+  - `include/linux/phy.h`: "@write_sts: Perform a C22 write transfer on the bus"; @sts of
+    `__phy_write_sts()`
+  - `SERIES.md`: 1/5's commit message ("a clause 22 MDIO write") and its "Changes in v2"
 
 ## Cover letter
 
@@ -236,17 +242,28 @@ each patch it touches, in the same commit as the change.
 net: mdio: add timestamped write operation
 
 Add an optional write_sts bus operation returning system timestamp
-bounds for completion of an MDIO write. This allows PHY drivers to
-obtain tighter bounds when implementing gettimex64. SPI introduced a
-similar facility to allow a device driver to obtain timestamp bounds
-from the bus controller in commit 79591b7db21d ("spi: Add a PTP system
-timestamp to the transfer structure").
+bounds for completion of a clause 22 MDIO write. This allows PHY
+drivers to obtain tighter bounds when implementing gettimex64. SPI
+introduced a similar facility to allow a device driver to obtain
+timestamp bounds from the bus controller in commit 79591b7db21d ("spi:
+Add a PTP system timestamp to the transfer structure").
 
 The core provides no fallback, because a bus driver's write may return
 before the transfer has completed.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
+```
+
+Notes for 1/5, after the `---` line (in the email, not the commit message):
+
+```
+Changes in v2:
+- @sts is required: __mdiobus_write_sts() no longer does an ordinary
+  write when it is NULL (Andrew)
+- Say that write_sts and __mdiobus_write_sts() do clause 22 writes
+  (Andrew)
+- Wrap __phy_write_sts() to 80 columns (checkpatch)
 ```
 
 ### 2/5

@@ -152,21 +152,20 @@ EXPORT_SYMBOL(__mdiobus_write);
  * @addr: the phy address
  * @regnum: register number to write
  * @val: value to write to @regnum
- * @sts: system timestamps bounding completion, or NULL
+ * @sts: system timestamps bounding completion
  *
  * Return: Zero if successful, negative error code on failure. Returns
- *	   -EBUSY or -EINVAL if the system timestamps are not valid. If @sts
- *	   is not NULL, -EOPNOTSUPP is returned only if
- *	   mdiobus_supports_write_sts() is false.
+ *	   -EBUSY or -EINVAL if the system timestamps are not valid.
+ *	   -EOPNOTSUPP is returned only if mdiobus_supports_write_sts() is
+ *	   false.
  *
- * Write a MDIO bus register, with system timestamps bounding completion;
- * a transfer is considered complete on the rising edge of the MDC
- * that clocks the last data bit. Caller must hold the mdio bus lock.
+ * Write a MDIO bus register with a clause 22 write transfer, with system
+ * timestamps bounding completion; a transfer is considered complete on
+ * the rising edge of the MDC that clocks the last data bit. Caller must
+ * hold the mdio bus lock.
  *
  * For clocks that can be stepped, validate the clock generation through
  * the raw time of the upper bound.
- *
- * If @sts is NULL, perform an ordinary write.
  *
  * NOTE: MUST NOT be called from interrupt context.
  */
@@ -176,9 +175,6 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 	struct system_time_snapshot now;
 	ktime_t deadline;
 	int err;
-
-	if (!sts)
-		return __mdiobus_write(bus, addr, regnum, val);
 
 	lockdep_assert_held_once(&bus->mdio_lock);
 

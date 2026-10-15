@@ -375,7 +375,7 @@ struct mii_bus {
 	int (*write_c45)(struct mii_bus *bus, int addr, int devnum,
 			 int regnum, u16 val);
 	/**
-	 * @write_sts: Perform a write transfer on the bus,
+	 * @write_sts: Perform a C22 write transfer on the bus,
 	 * with system timestamps bounding its completion. Set only
 	 * if timestamps can always be provided. Must not return
 	 * -EOPNOTSUPP.
@@ -1816,14 +1816,14 @@ static inline bool phy_supports_write_sts(struct phy_device *phydev)
  * @phydev: the phy_device struct
  * @regnum: clause 22 register number
  * @val: value to write
- * @sts: system timestamp bounds, or NULL
+ * @sts: system timestamp bounds
  *
  * Return: As for __mdiobus_write_sts().
  *
  * The caller must hold the MDIO bus lock.
  */
-static inline int __phy_write_sts(struct phy_device *phydev, u32 regnum, u16 val,
-				  struct ptp_system_timestamp *sts)
+static inline int __phy_write_sts(struct phy_device *phydev, u32 regnum,
+				  u16 val, struct ptp_system_timestamp *sts)
 {
 	return __mdiobus_write_sts(phydev->mdio.bus, phydev->mdio.addr,
 				   regnum, val, sts);
