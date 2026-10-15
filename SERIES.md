@@ -284,14 +284,13 @@ the measured margin.
 timekeeping: add ktime_scale_raw_ns()
 
 Add ktime_scale_raw_ns(), which scales a duration in monotonic raw
-time by the frequency of a given clock relative to monotonic raw, as
-set by that clock's current frequency correction.
+time by the frequency of a given clock relative to monotonic raw.
 
-The ptp helpers added in the next patch shift the system timestamps
-taken by ktime_get_snapshot_id() by a duration measured in monotonic
-raw time. To shift the selected clock's time by the same interval, the
-duration has to be scaled by that clock's frequency relative to
-monotonic raw.
+A PTP driver that takes a ktime_get_snapshot_id() snapshot around a
+hardware access may know how long after the snapshot, in monotonic raw
+time, the hardware event happened. To shift the snapshot's time of the
+selected clock by the same interval, the duration has to be scaled by
+that clock's frequency relative to monotonic raw.
 
 Scale by tkr_mono.mult / tkr_raw.mult of the clock's timekeeper, as
 adjust_historical_crosststamp() does. For an AUX clock this is the AUX

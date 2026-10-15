@@ -1338,9 +1338,8 @@ EXPORT_SYMBOL_GPL(ktime_get_snapshot_id);
  * @ns:		Duration in nanoseconds of the monotonic raw clock related
  *		to @clock_id
  *
- * Multiply a duration measured in monotonic raw time by the frequency of
- * @clock_id relative to monotonic raw, which is set by the frequency
- * correction of @clock_id in effect now.
+ * Multiply a duration measured in monotonic raw time by the current
+ * frequency of @clock_id relative to monotonic raw.
  *
  * Return: @ns scaled by the frequency of @clock_id relative to monotonic
  * raw. @ns unchanged for CLOCK_MONOTONIC_RAW, or if @clock_id is an AUX
