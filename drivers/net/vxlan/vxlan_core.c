@@ -1700,7 +1700,7 @@ static int vxlan_rcv(struct sock *sk, struct sk_buff *skb)
 	if (!(vh->vx_flags & VXLAN_HF_VNI)) {
 		netdev_dbg(skb->dev, "invalid vxlan flags=%#x vni=%#x\n",
 			   ntohl(vh->vx_flags), ntohl(vh->vx_vni));
-		reason = SKB_DROP_REASON_VXLAN_INVALID_HDR;
+		reason = SKB_DROP_REASON_TUNNEL_INVALID_HDR;
 		/* Return non vxlan pkt */
 		goto drop;
 	}
@@ -1713,7 +1713,7 @@ static int vxlan_rcv(struct sock *sk, struct sk_buff *skb)
 
 	vxlan = vxlan_vs_find_vni(vs, skb->dev->ifindex, vni, &vninode);
 	if (!vxlan) {
-		reason = SKB_DROP_REASON_VXLAN_VNI_NOT_FOUND;
+		reason = SKB_DROP_REASON_TUNNEL_NOT_FOUND;
 		goto drop;
 	}
 
@@ -1729,7 +1729,7 @@ static int vxlan_rcv(struct sock *sk, struct sk_buff *skb)
 		 * previous stack code, and also is more robust and provides a
 		 * little more security in adding extensions to VXLAN.
 		 */
-		reason = SKB_DROP_REASON_VXLAN_INVALID_HDR;
+		reason = SKB_DROP_REASON_TUNNEL_INVALID_HDR;
 		DEV_STATS_INC(vxlan->dev, rx_frame_errors);
 		DEV_STATS_INC(vxlan->dev, rx_errors);
 		vxlan_vnifilter_count(vxlan, cfg, vni, vninode,
@@ -1743,11 +1743,11 @@ static int vxlan_rcv(struct sock *sk, struct sk_buff *skb)
 		raw_proto = true;
 	}
 
-	if (__iptunnel_pull_header(skb, VXLAN_HLEN, protocol, raw_proto,
-				   !net_eq(vxlan->net, dev_net(vxlan->dev)))) {
-		reason = SKB_DROP_REASON_NOMEM;
+	reason = __iptunnel_pull_header(skb, VXLAN_HLEN, protocol, raw_proto,
+					!net_eq(vxlan->net,
+						dev_net(vxlan->dev)));
+	if (reason)
 		goto drop;
-	}
 
 	if (cfg->flags & VXLAN_F_REMCSUM_RX) {
 		reason = vxlan_remcsum(skb, cfg->flags);
@@ -1877,7 +1877,6 @@ static int vxlan_err_lookup(struct sock *sk, struct sk_buff *skb)
 static int arp_reduce(struct net_device *dev, struct sk_buff *skb,
 		      const struct vxlan_config *cfg, __be32 vni)
 {
-	struct neigh_table *tbl = arp_table(dev_net(dev));
 	struct vxlan_dev *vxlan = netdev_priv(dev);
 	struct neighbour *n;
 	struct arphdr *parp;
@@ -1914,8 +1913,7 @@ static int arp_reduce(struct net_device *dev, struct sk_buff *skb,
 	    ipv4_is_multicast(tip))
 		goto out;
 
-	n = neigh_lookup(tbl, &tip, dev);
-
+	n = ipv4_neigh_lookup(dev, &tip);
 	if (n) {
 		struct vxlan_rdst *rdst = NULL;
 		u8 ha[ETH_ALEN] __aligned(2);
@@ -2091,8 +2089,7 @@ static int neigh_reduce(struct net_device *dev, struct sk_buff *skb,
 	    ipv6_addr_is_multicast(&msg->target))
 		goto out;
 
-	n = neigh_lookup(nd_table(dev_net(dev)), &msg->target, dev);
-
+	n = ipv6_neigh_lookup(dev, &msg->target);
 	if (n) {
 		struct vxlan_rdst *rdst = NULL;
 		u8 ha[ETH_ALEN] __aligned(2);
@@ -2146,7 +2143,6 @@ out:
 static bool route_shortcircuit(struct net_device *dev, struct sk_buff *skb,
 			       const struct vxlan_config *cfg)
 {
-	struct neigh_table *tbl;
 	struct neighbour *n;
 
 	if (is_multicast_ether_addr(eth_hdr(skb)->h_dest))
@@ -2161,9 +2157,8 @@ static bool route_shortcircuit(struct net_device *dev, struct sk_buff *skb,
 		if (!pskb_network_may_pull(skb, sizeof(struct iphdr)))
 			return false;
 
-		tbl = arp_table(dev_net(dev));
 		pip = ip_hdr(skb);
-		n = neigh_lookup(tbl, &pip->daddr, dev);
+		n = ipv4_neigh_lookup(dev, &pip->daddr);
 		if (!n && (cfg->flags & VXLAN_F_L3MISS)) {
 			union vxlan_addr ipa = {
 				.sin.sin_addr.s_addr = pip->daddr,
@@ -2189,9 +2184,8 @@ static bool route_shortcircuit(struct net_device *dev, struct sk_buff *skb,
 		if (!pskb_network_may_pull(skb, sizeof(struct ipv6hdr)))
 			return false;
 
-		tbl = nd_table(dev_net(dev));
 		pip6 = ipv6_hdr(skb);
-		n = neigh_lookup(tbl, &pip6->daddr, dev);
+		n = ipv6_neigh_lookup(dev, &pip6->daddr);
 		if (!n && (cfg->flags & VXLAN_F_L3MISS)) {
 			union vxlan_addr ipa = {
 				.sin6.sin6_addr = pip6->daddr,
@@ -2389,7 +2383,7 @@ static int encap_bypass_if_local(struct sk_buff *skb, struct net_device *dev,
 			DEV_STATS_INC(dev, tx_errors);
 			vxlan_vnifilter_count(vxlan, cfg, vni, NULL,
 					      VXLAN_VNI_STATS_TX_ERRORS, 0);
-			kfree_skb_reason(skb, SKB_DROP_REASON_VXLAN_VNI_NOT_FOUND);
+			kfree_skb_reason(skb, SKB_DROP_REASON_TUNNEL_NOT_FOUND);
 
 			return -ENOENT;
 		}
@@ -2547,7 +2541,10 @@ void vxlan_xmit_one(struct sk_buff *skb, struct net_device *dev,
 					   tos, use_cache ? dst_cache : NULL);
 		if (IS_ERR(rt)) {
 			err = PTR_ERR(rt);
-			reason = SKB_DROP_REASON_IP_OUTNOROUTES;
+			if (err == -ELOOP)
+				reason = SKB_DROP_REASON_RECURSION_LIMIT;
+			else
+				reason = SKB_DROP_REASON_IP_OUTNOROUTES;
 			goto tx_error;
 		}
 
@@ -2633,7 +2630,10 @@ void vxlan_xmit_one(struct sk_buff *skb, struct net_device *dev,
 		if (IS_ERR(ndst)) {
 			err = PTR_ERR(ndst);
 			ndst = NULL;
-			reason = SKB_DROP_REASON_IP_OUTNOROUTES;
+			if (err == -ELOOP)
+				reason = SKB_DROP_REASON_RECURSION_LIMIT;
+			else
+				reason = SKB_DROP_REASON_IP_OUTNOROUTES;
 			goto tx_error;
 		}
 
