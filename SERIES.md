@@ -57,8 +57,8 @@ the length of the frame. The series:
   to shift system timestamps by a CLOCK_MONOTONIC_RAW duration;
 - makes bcm-phy-ptp use the operation for the write that triggers the
   capture of the PHC time, allowing 300 ns for the PHY to capture it;
-- implements the operation for macb, on RP1 only, where its timing has
-  been measured;
+- implements the operation for macb, with tighter bounds on RP1, where
+  its timing has been measured;
 - implements it for UniMAC, when the mdio node has a clock giving the
   MDC reference rate. On BCM2711 that is the GISB clock, which Nicolai
   Buchwitz is adding to clk-bcm2835 [1]. Until then BCM2711 does not
@@ -132,8 +132,9 @@ Changes in v2:
   check and the 1 ms cap reworded (Andrew, Sashiko)
 - bcm-phy-ptp: 300 ns on the upper bound for the PHY's capture delay
   (Sashiko); moved after the ptp patch, whose helper it uses
-- macb: write_sts only on RP1, and the pclk rate read once at probe
-  (Sashiko); a separate write function
+- macb: wider bounds unless the MAC starts the frame with the command
+  write, as RP1 does, and the MDC rate recorded when the divisor is
+  chosen (Théo); a separate write function
 - UniMAC: the reference rate from a clock on the mdio node, in place of
   200 MHz assumed for BCM2711 (Florian, Nicolai); a suppressed preamble
   allowed, and a separate write function (Andrew)
@@ -349,8 +350,7 @@ implementations of gettimex64.
 
 Take system timestamps around the command register write, then add
 the time from the command write until the MDC edge that clocks the
-last data bit, calculated from the peripheral clock rate and the
-configured MDC divider.
+last data bit, calculated from the MDC rate.
 
 On RP1 that edge comes 63.5 MDC periods after the command write, half
 a period before the end of the 64-bit frame. This was measured on a Raspberry Pi CM5 with its BCM54210PE PHY. The PHY's
@@ -361,11 +361,17 @@ compensating for drift, the jump with 63.5 periods was under 2 ns.
 The MDC divider does not appear to run freely: the spread of the PHC
 offsets did not change with the divisor.
 
-Enable write_sts only where the delay has been measured, with a new
-MACB_CAPS_MDIO_WRITE_STS capability that only RP1 sets for now. Other
-platforms can set it once the delay has been measured on them. RP1's
-pclk is clk_sys, whose rate is set by assigned-clock-rates and does
-not change, so read the rate once at probe.
+If MDC runs freely, the frame can start up to a period after the
+command write, so by default bound the edge by 63.5 and 64.5 periods.
+Add MACB_CAPS_MDIO_START_ON_WRITE for a MAC that starts the frame with
+the command write, as RP1 does, and use exactly 63.5 periods there.
+
+write_sts runs under the MDIO bus lock, so it can't call
+clk_get_rate(), which takes the clock framework's prepare_lock: a
+clock provider that does MDIO accesses, such as air_en8811h's, takes
+the two locks in the other order. So record the MDC rate when
+macb_mdc_clk_div() chooses the divisor. Like the divisor, the recorded
+rate does not follow a later change of the pclk rate.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
@@ -375,9 +381,13 @@ Notes for 4/5, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
-- Enable write_sts only on RP1, with MACB_CAPS_MDIO_WRITE_STS (Sashiko)
-- Read the pclk rate once at probe, in place of refreshing it in
-  macb_init_hw() (Sashiko)
+- Bound the edge by 63.5 and 64.5 MDC periods by default, and use
+  exactly 63.5 with MACB_CAPS_MDIO_START_ON_WRITE, which RP1 sets
+  (Théo)
+- Record the MDC rate when the divisor is chosen, in place of reading
+  NCFGR (Théo)
+- Explain why clk_get_rate() can't be called under the MDIO bus lock
+  (Théo)
 - A separate macb_mdio_write_c22_sts(), leaving macb_mdio_write_c22()
   unchanged, as Andrew asked for UniMAC
 - Express the delay with MDIO_C22_FRAME_BITS (Andrew)
