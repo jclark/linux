@@ -353,13 +353,14 @@ the time from the command write until the MDC edge that clocks the
 last data bit, calculated from the MDC rate.
 
 On RP1 that edge comes 63.5 MDC periods after the command write, half
-a period before the end of the 64-bit frame. This was measured on a Raspberry Pi CM5 with its BCM54210PE PHY. The PHY's
-PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC divisor was
-switched between 48 and 128 through /dev/mem. Any error in the number
-of periods would make the PHC offset jump at each switch. After
-compensating for drift, the jump with 63.5 periods was under 2 ns.
-The MDC divider does not appear to run freely: the spread of the PHC
-offsets did not change with the divisor.
+a period before the end of the 64-bit frame. This was measured on a
+Raspberry Pi CM5 with its BCM54210PE PHY. The PHY's PHC was read with
+PTP_SYS_OFFSET_EXTENDED while the MDC divisor was switched between 48
+and 128 through /dev/mem. Any error in the number of periods would
+make the PHC offset jump at each switch. After compensating for drift,
+the jump with 63.5 periods was under 2 ns. The MDC divider does not
+appear to run freely: the spread of the PHC offsets did not change
+with the divisor.
 
 If MDC runs freely, the frame can start up to a period after the
 command write, so by default bound the edge by 63.5 and 64.5 periods.
