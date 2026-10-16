@@ -460,13 +460,13 @@ static void macb_mdio_sts_delays(struct macb *bp, u64 *pre_ns, u64 *post_ns)
 
 	/* The MDC edge that clocks the last bit comes half a period
 	 * before the end of the frame. A MAC with
-	 * MACB_CAPS_MDIO_START_ON_WRITE starts the frame with the command
+	 * MACB_CAPS_MDC_WRITE_SYNC starts the frame with the command
 	 * write. Otherwise MDC may run freely, so the frame starts up to
 	 * one period after the command write.
 	 */
 	*pre_ns = div64_u64((2ULL * MDIO_C22_FRAME_BITS - 1) * NSEC_PER_SEC,
 			    rate2);
-	if (bp->caps & MACB_CAPS_MDIO_START_ON_WRITE)
+	if (bp->caps & MACB_CAPS_MDC_WRITE_SYNC)
 		*post_ns = *pre_ns;
 	else
 		*post_ns = div64_u64((2ULL * MDIO_C22_FRAME_BITS + 1) *
@@ -5968,7 +5968,7 @@ static const struct macb_config raspberrypi_rp1_config = {
 		MACB_CAPS_GEM_HAS_PTP |
 		MACB_CAPS_EEE |
 		MACB_CAPS_USRIO_HAS_MII |
-		MACB_CAPS_MDIO_START_ON_WRITE,
+		MACB_CAPS_MDC_WRITE_SYNC,
 	.dma_burst_length = 16,
 	.usrio = &at91_default_usrio,
 	.jumbo_max_len = 10240,

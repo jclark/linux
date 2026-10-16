@@ -364,7 +364,7 @@ with the divisor.
 
 If MDC runs freely, the frame can start up to a period after the
 command write, so by default bound the edge by 63.5 and 64.5 periods.
-Add MACB_CAPS_MDIO_START_ON_WRITE for a MAC that starts the frame with
+Add MACB_CAPS_MDC_WRITE_SYNC for a MAC that starts the frame with
 the command write, as RP1 does, and use exactly 63.5 periods there.
 
 write_sts runs under the MDIO bus lock, so it can't call
@@ -383,7 +383,7 @@ Notes for 4/5, after the `---` line (in the email, not the commit message):
 ```
 Changes in v2:
 - Bound the edge by 63.5 and 64.5 MDC periods by default, and use
-  exactly 63.5 with MACB_CAPS_MDIO_START_ON_WRITE, which RP1 sets
+  exactly 63.5 with MACB_CAPS_MDC_WRITE_SYNC, which RP1 sets
 - Record the MDC rate when the divisor is chosen, in place of reading
   NCFGR (Théo)
 - Explain why clk_get_rate() can't be called under the MDIO bus lock
