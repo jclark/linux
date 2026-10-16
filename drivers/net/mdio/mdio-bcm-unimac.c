@@ -177,7 +177,7 @@ static int unimac_mdio_write(struct mii_bus *bus, int phy_id,
 static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 				  u64 *pre_ns, u64 *post_ns)
 {
-	u32 cmd, config, div, divisor, bits;
+	u32 cmd, config, divisor, bits;
 	u64 ref_rate2 = 2ULL * priv->mdio_ref_rate;
 	int ret;
 
@@ -189,8 +189,7 @@ static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 		return ret;
 
 	config = unimac_mdio_readl(priv, MDIO_CFG);
-	div = (config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK;
-	divisor = 2 * (div + 1);
+	divisor = 2 * (((config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK) + 1);
 	bits = MDIO_C22_FRAME_BITS;
 	if (config & MDIO_SUPP_PREAMBLE)
 		bits -= MDIO_PREAMBLE_BITS;
