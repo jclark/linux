@@ -133,8 +133,8 @@ Changes in v2:
 - bcm-phy-ptp: 300 ns on the upper bound for the PHY's capture delay
   (Sashiko); moved after the ptp patch, whose helper it uses
 - macb: wider bounds unless the MAC starts the frame with the command
-  write, as RP1 does, and the MDC rate recorded when the divisor is
-  chosen (Théo); a separate write function
+  write, as RP1 does; the MDC rate recorded when the divisor is chosen
+  (Théo); a separate write function
 - UniMAC: the reference rate from a clock on the mdio node, in place of
   200 MHz assumed for BCM2711 (Florian, Nicolai); a suppressed preamble
   allowed, and a separate write function (Andrew)
@@ -384,7 +384,6 @@ Notes for 4/5, after the `---` line (in the email, not the commit message):
 Changes in v2:
 - Bound the edge by 63.5 and 64.5 MDC periods by default, and use
   exactly 63.5 with MACB_CAPS_MDIO_START_ON_WRITE, which RP1 sets
-  (Théo)
 - Record the MDC rate when the divisor is chosen, in place of reading
   NCFGR (Théo)
 - Explain why clk_get_rate() can't be called under the MDIO bus lock
