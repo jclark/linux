@@ -223,7 +223,8 @@ static int bcm_ptp_framesync_sts(struct phy_device *phydev, u16 ctrl,
 				 struct ptp_system_timestamp *sts)
 {
 	return bcm_phy_write_exp_sts(phydev, NSE_CTRL,
-				     ctrl | NSE_CPU_FRAMESYNC, sts);
+				     ctrl | NSE_CPU_FRAMESYNC,
+				     BCM_FRAMESYNC_CAPTURE_NS, sts);
 }
 
 static int bcm_ptp_framesync_ts(struct phy_device *phydev,
@@ -242,8 +243,6 @@ static int bcm_ptp_framesync_ts(struct phy_device *phydev,
 		 * but still poll for any triggered capture
 		 */
 		err = bcm_ptp_framesync_sts(phydev, ctrl | NSE_CAPTURE_EN, sts);
-		if (!err)
-			ptp_adjust_system_postts(sts, BCM_FRAMESYNC_CAPTURE_NS);
 	} else {
 		ptp_read_system_prets(sts);
 		bcm_ptp_framesync(phydev, ctrl | NSE_CAPTURE_EN);

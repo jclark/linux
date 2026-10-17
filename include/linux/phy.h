@@ -1816,6 +1816,7 @@ static inline bool phy_supports_write_sts(struct phy_device *phydev)
  * @phydev: the phy_device struct
  * @regnum: clause 22 register number
  * @val: value to write
+ * @event_delay_ns: as for __mdiobus_write_sts()
  * @sts: system timestamp bounds
  *
  * Return: As for __mdiobus_write_sts().
@@ -1823,10 +1824,11 @@ static inline bool phy_supports_write_sts(struct phy_device *phydev)
  * The caller must hold the MDIO bus lock.
  */
 static inline int __phy_write_sts(struct phy_device *phydev, u32 regnum,
-				  u16 val, struct ptp_system_timestamp *sts)
+				  u16 val, u32 event_delay_ns,
+				  struct ptp_system_timestamp *sts)
 {
 	return __mdiobus_write_sts(phydev->mdio.bus, phydev->mdio.addr,
-				   regnum, val, sts);
+				   regnum, val, event_delay_ns, sts);
 }
 
 /**

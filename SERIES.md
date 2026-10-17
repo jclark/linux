@@ -129,9 +129,10 @@ Changes in v2:
 - mdio core: the sts argument is required, the documentation says
   clause 22, and MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS give the
   bus drivers the frame length (Andrew); comments on the clock-step
-  check and the 1 ms cap reworded (Andrew, Sashiko)
-- bcm-phy-ptp: 300 ns on the upper bound for the PHY's capture delay
-  (Sashiko); moved after the ptp patch, whose helper it uses
+  check and the 1 ms cap reworded (Andrew, Sashiko); an event delay
+  added to the upper bound, covered by the clock-step check; moved
+  after the ptp patch, whose helper it uses
+- bcm-phy-ptp: the PHY's capture delay taken into account (Sashiko)
 - macb: wider bounds unless the MAC starts the frame with the command
   write, as RP1 does; the MDC rate recorded when the divisor is chosen
   (Théo); a separate write function
@@ -149,8 +150,9 @@ Changes in v2:
 
 ## Split
 
-v2 order (#22): 1/5 mdio core, the new timekeeping patch, 3/5 ptp, 2/5 Broadcom PHY (it uses
-`ptp_adjust_system_postts()`), 4/5 macb, 5/5 UniMAC. The headings below keep v1's numbers.
+v2 order (#22): the new timekeeping patch, 3/5 ptp, 1/5 mdio core (it uses
+`ptp_adjust_system_postts()`), 2/5 Broadcom PHY, 4/5 macb, 5/5 UniMAC. The headings below keep
+v1's numbers.
 
 Each patch's changes since v1 are listed under "Changes in v2" in its notes after the `---` line
 (below its commit message). Whenever a change goes into the working tree, add an entry there for
@@ -215,6 +217,11 @@ ptp_sys_offset_extended() does not check for it, so detecting it is
 left to the PTP core. The MDIO core only caps its wait for the upper
 bound, so that a reset cannot make it spin.
 
+__mdiobus_write_sts() takes the longest delay from completion of the
+write to the event being timed, such as a PHY capturing its time, and
+adds it to the upper bound before checking that the clock was not
+stepped within the bounds.
+
 Also add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS, the lengths of a
 clause 22 frame and of its preamble, for bus drivers that work out
 from the MDC period when a write completes.
@@ -239,6 +246,10 @@ Changes in v2:
   (Andrew, Sashiko)
 - Say why detecting an aux clock reset is left to the PTP core
   (Sashiko)
+- Add an event delay argument to __mdiobus_write_sts() and
+  __phy_write_sts(), added to the upper bound before the clock-step
+  check
+- Moved after the ptp patch, whose helper it now uses
 ```
 
 ### 2/5
@@ -252,11 +263,12 @@ gettimex64 by timestamping completion of the write that triggers
 capture of the PHC time.
 
 The PHY captures its time a short delay after the last MDC edge of the
-write, so add 300 ns to the upper bound. On a Raspberry Pi CM4, with
-the same PPS signal on the PHY's SYNC pin and on GPIO 18, the PHC was
-read with PTP_SYS_OFFSET_EXTENDED while the system time of each pulse
-was measured by polling the GPIO. No capture out of 14,184 fell past
-the upper bound, and the delay was at most about 0.34 us.
+write, so pass BCM_FRAMESYNC_CAPTURE_NS, 300 ns, as the event delay. On
+a Raspberry Pi CM4, with the same PPS signal on the PHY's SYNC pin and
+on GPIO 18, the PHC was read with PTP_SYS_OFFSET_EXTENDED while the
+system time of each pulse was measured by polling the GPIO. No capture
+out of 14,184 fell past the upper bound, and the delay was at most about
+0.34 us.
 
 This patch does not try to fix the error handling in the existing
 framesync code, which ignores MDIO write errors.
@@ -269,10 +281,9 @@ Notes for 2/5, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
-- Add 300 ns to the upper bound for the PHY's capture delay (Sashiko)
+- Take into account the PHY's capture delay (Sashiko)
 - Say that the tighter bounds need a bus driver with write_sts
   (Sashiko)
-- Moved after the ptp patch, whose helper it now uses
 
 Does Broadcom know the delay from the end of the MDIO write to the
 framesync capture in the BCM54210PE? If so, I can use it in place of

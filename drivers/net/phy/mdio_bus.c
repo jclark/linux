@@ -152,6 +152,8 @@ EXPORT_SYMBOL(__mdiobus_write);
  * @addr: the phy address
  * @regnum: register number to write
  * @val: value to write to @regnum
+ * @event_delay_ns: the longest the event being timed can follow
+ *		    completion of the transfer
  * @sts: system timestamps bounding completion
  *
  * Return: Zero if successful, negative error code on failure. Returns
@@ -161,8 +163,9 @@ EXPORT_SYMBOL(__mdiobus_write);
  *
  * Write a MDIO bus register with a clause 22 write transfer, with system
  * timestamps bounding completion; a transfer is considered complete on
- * the rising edge of the MDC that clocks the last data bit. Caller must
- * hold the mdio bus lock.
+ * the rising edge of the MDC that clocks the last data bit. The upper
+ * bound is moved @event_delay_ns later, so that the bounds also contain
+ * an event that follows completion. Caller must hold the mdio bus lock.
  *
  * For clocks that can be stepped, validate the clock generation through
  * the raw time of the upper bound.
@@ -170,7 +173,7 @@ EXPORT_SYMBOL(__mdiobus_write);
  * NOTE: MUST NOT be called from interrupt context.
  */
 int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
-			struct ptp_system_timestamp *sts)
+			u32 event_delay_ns, struct ptp_system_timestamp *sts)
 {
 	struct system_time_snapshot now;
 	ktime_t deadline;
@@ -194,6 +197,8 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 
 	if (!sts->pre_sts.valid || !sts->post_sts.valid)
 		return -EINVAL;
+
+	ptp_adjust_system_postts(sts, event_delay_ns);
 
 	if (sts->clockid == CLOCK_MONOTONIC ||
 	    sts->clockid == CLOCK_MONOTONIC_RAW)

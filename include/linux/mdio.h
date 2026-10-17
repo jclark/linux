@@ -582,7 +582,7 @@ static inline void mii_c73_mod_linkmode(unsigned long *adv, u16 *lpa)
 int __mdiobus_read(struct mii_bus *bus, int addr, u32 regnum);
 int __mdiobus_write(struct mii_bus *bus, int addr, u32 regnum, u16 val);
 int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
-			struct ptp_system_timestamp *sts);
+			u32 event_delay_ns, struct ptp_system_timestamp *sts);
 bool mdiobus_supports_write_sts(struct mii_bus *bus);
 int __mdiobus_modify(struct mii_bus *bus, int addr, u32 regnum, u16 mask,
 		     u16 set);
