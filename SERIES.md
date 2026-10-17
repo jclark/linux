@@ -129,7 +129,7 @@ Changes in v2:
 - mdio core: the sts argument is required, the documentation says
   clause 22, and MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS give the
   bus drivers the frame length (Andrew); the comment on the clock-step
-  check removed, and the one on the 1 ms cap reworded (Andrew,
+  check shortened, and the one on the 1 ms cap reworded (Andrew,
   Sashiko); an event delay added to the upper bound, covered by the
   clock-step check; moved after the ptp patch, whose helper it uses
 - bcm-phy-ptp: the PHY's capture delay taken into account (Sashiko)
@@ -241,8 +241,9 @@ Changes in v2:
 - Wrap __phy_write_sts() to 80 columns (checkpatch)
 - Add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS, so that bus drivers
   share the frame length (Andrew)
-- Remove the comment on the clock-step check, which read as if
-  retrying the write were safe (Sashiko)
+- Drop "callers must retry anyway" from the comment on the
+  clock-step check, which read as if retrying the write were safe
+  (Sashiko)
 - Reword the comment on the 1 ms cap, which is on the wait after
   write_sts() returns, not on the write (Andrew, Sashiko)
 - Say why detecting an aux clock reset is left to the PTP core
