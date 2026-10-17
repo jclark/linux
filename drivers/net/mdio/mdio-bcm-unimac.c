@@ -378,8 +378,10 @@ static int unimac_mdio_probe(struct platform_device *pdev)
 		priv->wait_func_data = pdata->wait_func_data;
 		bus->phy_mask = ~pdata->phy_mask;
 		priv->clk = pdata->clk;
-		/* For write_sts: the MDC reference clock, if the mdio
-		 * node has one.
+		/* priv->clk is GENET's main clock, which gates register
+		 * access. ref_clk is the clock used as the MDC reference,
+		 * which we get from the MDIO node. The presence of this
+		 * clock enables write_sts.
 		 */
 		ref_clk = devm_clk_get_optional(&pdev->dev, NULL);
 	} else {
