@@ -193,11 +193,14 @@ static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 	bits = MDIO_C22_FRAME_BITS;
 	if (config & MDIO_SUPP_PREAMBLE)
 		bits -= MDIO_PREAMBLE_BITS;
-	/* The MDC edge that clocks the last bit comes half a period
-	 * before the end of the frame. The MDC divider runs freely
-	 * (measured on BCM2711), so the frame starts up to one period
-	 * after the command start: the edge comes bits - 0.5 to
-	 * bits + 0.5 periods after it.
+	/* Assume that the PHY acts on the write at the earliest time it
+	 * physically can: when it samples the last bit, on the rising
+	 * MDC edge halfway through the last period of the frame, which
+	 * is bits periods long. Measurements on BCM2711 support this
+	 * assumption and show that the MDC divider can run freely, so
+	 * that the frame starts up to one period after the write that
+	 * sets MDIO_START_BUSY. The edge therefore comes between
+	 * bits - 0.5 and bits + 0.5 periods after that write.
 	 */
 	*pre_ns = div64_u64((2ULL * bits - 1) * divisor * NSEC_PER_SEC,
 			    ref_rate2);
