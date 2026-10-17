@@ -154,7 +154,8 @@ EXPORT_SYMBOL(__mdiobus_write);
  * @val: value to write to @regnum
  * @event_delay_ns: the longest the event being timed can follow
  *		    completion of the transfer
- * @sts: system timestamps bounding completion
+ * @sts: system timestamps bounding an event occurring at most
+ *	 @event_delay_ns after completion of the transfer
  *
  * Return: Zero if successful, negative error code on failure. Returns
  *	   -EBUSY or -EINVAL if the system timestamps are not valid.
