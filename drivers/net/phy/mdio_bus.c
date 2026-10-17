@@ -208,8 +208,14 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 	if (sts->pre_sts.clock_was_set_seq != sts->post_sts.clock_was_set_seq)
 		return -EBUSY;
 
-	/* The shifted upper bound can be later than actual completion. */
-	deadline = ktime_add_ns(ktime_get_raw(), NSEC_PER_MSEC);
+	/* Fail if the shift in the upper bound crosses a clock step. Since
+	 * write_sts() can return before the transfer completes, we need to wait
+	 * until the shifted upper bound has passed. This wait needs a deadline
+	 * in case an aux clock is disabled and reenabled, which restarts its
+	 * raw time. 1 ms is enough for a frame with MDC down to about 65 kHz.
+	 */
+	deadline = ktime_add_ns(ktime_get_raw(),
+				(u64)event_delay_ns + NSEC_PER_MSEC);
 	for (;;) {
 		ktime_get_snapshot_id(sts->clockid, &now);
 		if (!now.valid)
@@ -221,14 +227,6 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 		if (!ktime_before(now.monoraw, sts->post_sts.monoraw))
 			return 0;
 
-		/* Cap the wait at 1 ms. This limits the wait after
-		 * write_sts() returns, not the write: a driver that returns
-		 * before the transfer completes, at worst as soon as it
-		 * starts, leaves at most one frame time to wait, and one
-		 * that returns after the last bit leaves none. The cap
-		 * stops an aux clock reset, which restarts its raw time,
-		 * from making this spin; it doesn't detect every reset.
-		 */
 		if (!ktime_before(ktime_get_raw(), deadline))
 			return -EBUSY;
 

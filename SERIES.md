@@ -131,7 +131,8 @@ Changes in v2:
   bus drivers the frame length (Andrew); the comment on the clock-step
   check shortened, and the one on the 1 ms cap reworded (Andrew,
   Sashiko); an event delay added to the upper bound, covered by the
-  clock-step check; moved after the ptp patch, whose helper it uses
+  clock-step check, and to the 1 ms cap; moved after the ptp patch,
+  whose helper it uses
 - bcm-phy-ptp: the PHY's capture delay taken into account (Sashiko)
 - macb: wider bounds unless the MAC starts the frame with the command
   write, as RP1 does; the MDC rate recorded when the divisor is chosen
@@ -244,13 +245,13 @@ Changes in v2:
 - Drop "callers must retry anyway" from the comment on the
   clock-step check, which read as if retrying the write were safe
   (Sashiko)
-- Reword the comment on the 1 ms cap, which is on the wait after
-  write_sts() returns, not on the write (Andrew, Sashiko)
+- Explain why the core waits after write_sts() returns, and the 1 ms
+  cap on that wait (Andrew, Sashiko)
 - Say why detecting an aux clock reset is left to the PTP core
   (Sashiko)
 - Add an event delay argument to __mdiobus_write_sts() and
   __phy_write_sts(), added to the upper bound before the clock-step
-  check
+  check, and to the 1 ms cap
 - Moved after the ptp patch, whose helper it now uses
 ```
 
