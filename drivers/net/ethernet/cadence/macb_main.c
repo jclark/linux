@@ -459,10 +459,10 @@ static void macb_mdio_sts_delays(struct macb *bp, u64 *pre_ns, u64 *post_ns)
 	u64 rate2 = 2ULL * READ_ONCE(bp->mdc_rate);
 
 	/* The MDC edge that clocks the last bit comes half a period
-	 * before the end of the frame. A MAC with
-	 * MACB_CAPS_MDC_WRITE_SYNC starts the frame with the command
-	 * write. Otherwise MDC may run freely, so the frame starts up to
-	 * one period after the command write.
+	 * before the end of the frame. A MAC with MACB_CAPS_MDC_WRITE_SYNC
+	 * starts the frame with the command write. Otherwise MDC may run
+	 * freely, so the frame starts up to one period after the command
+	 * write.
 	 */
 	*pre_ns = div64_u64((2ULL * MDIO_C22_FRAME_BITS - 1) * NSEC_PER_SEC,
 			    rate2);
