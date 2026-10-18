@@ -300,6 +300,10 @@ by less than 10 ns. Measurements on a Raspberry Pi CM5, where the same
 PHY is on the RP1's macb, are consistent with the CM4 measurements. But
 there the GPIO is polled across PCIe, so the polling brackets are wider.
 
+gettimex64 can now return -EBUSY if the clock is stepped during the
+write, as gettimex64 already can in other drivers, such as mvpp2 and
+ionic.
+
 This patch does not try to fix the error handling in the existing
 framesync code, which ignores MDIO write errors.
 
