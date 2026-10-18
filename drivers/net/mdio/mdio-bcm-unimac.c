@@ -191,8 +191,12 @@ static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 	config = unimac_mdio_readl(priv, MDIO_CFG);
 	divisor = 2 * (((config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK) + 1);
 	bits = MDIO_C22_FRAME_BITS;
+	/* Measured on BCM2711: with the preamble suppressed, the UniMAC
+	 * sends one period more than the 32-bit frame, as if one preamble
+	 * bit were still sent.
+	 */
 	if (config & MDIO_SUPP_PREAMBLE)
-		bits -= MDIO_PREAMBLE_BITS;
+		bits -= MDIO_PREAMBLE_BITS - 1;
 	/* Assume that the PHY acts on the write at the earliest time it
 	 * physically can: when it samples the last bit, on the rising
 	 * MDC edge halfway through the last period of the frame, which
