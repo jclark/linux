@@ -328,7 +328,7 @@ out:
 static bool unimac_mdio_init_sts(struct unimac_mdio_priv *priv,
 				 struct clk *ref_clk)
 {
-	/* The reference rate is fixed, so read it once. */
+	/* The reference rate is taken to be fixed, so read it once. */
 	priv->mdio_ref_rate = clk_get_rate(ref_clk);
 
 	return priv->mdio_ref_rate != 0;
