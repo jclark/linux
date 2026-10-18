@@ -1814,7 +1814,7 @@ static inline bool phy_supports_write_sts(struct phy_device *phydev)
 }
 
 /**
- * __phy_write_sts - Write a PHY register with a frame-end timestamp
+ * __phy_write_sts - Write a PHY register with timestamps bounding completion
  * @phydev: the phy_device struct
  * @regnum: clause 22 register number
  * @val: value to write
