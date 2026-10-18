@@ -21,7 +21,7 @@ net: mdio: add timestamped MDIO writes for PHY gettimex64
 ```
 
 Draft for v2 (v1 as sent is `../v1/0000-cover-letter.patch`). Figures are v1's: recheck them
-with a v2 build (#20); the 300 ns PHY margin widens the brackets by 0.3 µs.
+with a v2 build (#20); the 350 ns PHY margin widens the brackets by 0.35 µs.
 
 Recipients for v2 (#23), in addition to v1's: Andrew Lunn <andrew@lunn.ch> (as well as
 andrew+netdev@lunn.ch), Vladimir Oltean <olteanv@gmail.com>, Hubert Feurstein
@@ -56,7 +56,7 @@ the length of the frame. The series:
 - adds ktime_scale_raw_ns() to timekeeping, and ptp helpers that use it
   to shift system timestamps by a CLOCK_MONOTONIC_RAW duration;
 - makes bcm-phy-ptp use the operation for the write that triggers the
-  capture of the PHC time, allowing 300 ns for the PHY to capture it;
+  capture of the PHC time, allowing 350 ns for the PHY to capture it;
 - implements the operation for macb, with tighter bounds on RP1, where
   its timing has been measured;
 - implements it for UniMAC, when the mdio node has a clock giving the
@@ -266,12 +266,24 @@ gettimex64 by timestamping completion of the write that triggers
 capture of the PHC time.
 
 The PHY captures its time a short delay after the last MDC edge of the
-write, so pass BCM_FRAMESYNC_CAPTURE_NS, 300 ns, as the event delay. On
-a Raspberry Pi CM4, with the same PPS signal on the PHY's SYNC pin and
-on GPIO 18, the PHC was read with PTP_SYS_OFFSET_EXTENDED while the
-system time of each pulse was measured by polling the GPIO. No capture
-out of 14,184 fell past the upper bound, and the delay was at most about
-0.34 us.
+write. This delay is not documented. The correctness of gettimex64
+requires that the event delay passed to __phy_write_sts() is an upper
+bound on the actual delay.
+
+The upper bound BCM_FRAMESYNC_CAPTURE_NS was established by measurements
+performed on a Raspberry Pi CM4. The same PPS signal was wired both to
+the SYNC_OUT pin connected to the PHY's PHC and to GPIO pin 18. Two
+programs were run simultaneously. One used polling of GPIO registers to
+estimate the system time of each pulse. The other waited for the extts
+event for each pulse, and then performed a PTP_SYS_OFFSET_EXTENDED
+ioctl. Combining these gives a PHC/system time pair for each pulse. The
+system time of the PHC reading in each PTP_SYS_OFFSET_EXTENDED sample
+was estimated by interpolating between the PHC/system time pairs of the
+pulses on either side of it. Over about 30,000 samples, every estimate
+was at least 285 ns after the lower system time bound of the sample.
+However, the polling brackets are about 150 ns wide. Compensating for
+polling error by considering neighbouring pulses gives an upper bound of
+at most 330 ns; BCM_FRAMESYNC_CAPTURE_NS uses this rounded up to 350 ns.
 
 This patch does not try to fix the error handling in the existing
 framesync code, which ignores MDIO write errors.
