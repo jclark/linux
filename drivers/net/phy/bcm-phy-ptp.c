@@ -164,7 +164,7 @@ struct bcm_ptp_capture {
 /* Allowed for the PHY to capture its time after the last MDC edge of
  * the framesync write.
  */
-#define BCM_FRAMESYNC_CAPTURE_NS	300
+#define BCM_FRAMESYNC_CAPTURE_NS	350
 
 #define BRCM_PHY_MODEL(phydev) \
 	((phydev)->drv->phy_id & (phydev)->drv->phy_id_mask)
