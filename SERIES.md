@@ -222,9 +222,9 @@ write to the event being timed, such as a PHY capturing its time, and
 adds it to the upper bound before checking that the clock was not
 stepped within the bounds.
 
-Also add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS, the lengths of a
-clause 22 frame and of its preamble, for bus drivers that work out
-from the MDC period when a write completes.
+Also add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS, the number of
+bits in a clause 22 frame and in its preamble. A bus driver can use
+them with the MDC period to work out when a write completes.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
