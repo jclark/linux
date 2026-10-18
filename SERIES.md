@@ -290,7 +290,15 @@ pulses on either side of it. Over about 30,000 samples, every estimate
 was at least 285 ns after the lower system time bound of the sample.
 However, the polling brackets are about 150 ns wide. Compensating for
 polling error by considering neighbouring pulses gives an upper bound of
-at most 330 ns; BCM_FRAMESYNC_CAPTURE_NS uses this rounded up to 350 ns.
+at most 330 ns; BCM_FRAMESYNC_CAPTURE_NS uses this rounded up to 350 ns,
+which also covers a possible variation of 8 ns in the delay,
+corresponding to one period of the PHY's 125 MHz clock.
+
+This assumes that the delay is a property of the PHY, so that it applies
+equally with other MDIO buses. Changing the MDC rate changed the delay
+by less than 10 ns. Measurements on a Raspberry Pi CM5, where the same
+PHY is on the RP1's macb, are consistent with the CM4 measurements. But
+there the GPIO is polled across PCIe, so the polling brackets are wider.
 
 This patch does not try to fix the error handling in the existing
 framesync code, which ignores MDIO write errors.
