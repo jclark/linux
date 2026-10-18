@@ -384,6 +384,11 @@ static int unimac_mdio_probe(struct platform_device *pdev)
 		 * clock enables write_sts.
 		 */
 		ref_clk = devm_clk_get_optional(&pdev->dev, NULL);
+		if (IS_ERR(ref_clk) && PTR_ERR(ref_clk) != -EPROBE_DEFER) {
+			dev_warn(&pdev->dev, "no MDC reference clock: %pe\n",
+				 ref_clk);
+			ref_clk = NULL;
+		}
 	} else {
 		bus->name = "unimac MII bus";
 		priv->wait_func_data = priv;
