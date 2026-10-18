@@ -482,7 +482,8 @@ divider.
 Without the preamble, a clause 22 frame is 32 MDC periods long. But with
 the preamble suppressed, the same test put the edge one period later
 than a 32-bit frame would, as if the UniMAC still sent one preamble bit.
-So without the preamble, bound the edge by 32.5 and 33.5 periods.
+So without the preamble, bound the edge by 31.5 and 33.5 periods, which
+also covers a UniMAC that sends just the 32-bit frame.
 
 Take the reference rate from a clock on the mdio node, and offer
 write_sts only when there is one. This is how the standalone UniMAC
@@ -507,7 +508,8 @@ Changes in v2:
   the 200 MHz assumed for BCM2711 after checking the parent's
   compatible (Florian, Nicolai)
 - Allow for a suppressed preamble, in place of not offering write_sts
-  (Andrew); the UniMAC then sends 33 periods, as measured on BCM2711
+  (Andrew); the upper bound allows for the 33 periods the UniMAC sends
+  on BCM2711
 - Explain how 63.5 to 64.5 follows from the frame timing
 - A separate unimac_mdio_write_sts(), leaving unimac_mdio_write()
   unchanged (Andrew)
