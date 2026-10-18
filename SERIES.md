@@ -362,24 +362,27 @@ Implement write_sts to provide system timestamp bounds for completion
 of an MDIO write. This enables tighter system timestamp bounds in PHY
 implementations of gettimex64.
 
-Take system timestamps around the command register write, then add
-the time from the command write until the MDC edge that clocks the
-last data bit, calculated from the MDC rate.
+Take system timestamps around the command register write, then shift
+them by the time from the command write until the MDC edge that
+clocks the last data bit, calculated from the MDC rate.
 
-On RP1 that edge comes 63.5 MDC periods after the command write, half
-a period before the end of the 64-bit frame. This was measured on a
-Raspberry Pi CM5 with its BCM54210PE PHY. The PHY's PHC was read with
-PTP_SYS_OFFSET_EXTENDED while the MDC divisor was switched between 48
-and 128 through /dev/mem. Any error in the number of periods would
-make the PHC offset jump at each switch. After compensating for drift,
-the jump with 63.5 periods was under 2 ns. The MDC divider does not
-appear to run freely: the spread of the PHC offsets did not change
-with the divisor.
+A clause 22 frame is 64 MDC periods long, and the transfer ends on the
+rising edge of MDC in the last period, half way through it. So if the
+frame starts with the command write, that edge comes 63.5 periods after
+the command write. If MDC runs freely, the frame can start up to one
+period after the command write, so by default bound the edge by 63.5 and
+64.5 periods. Add the MACB_CAPS_MDC_WRITE_SYNC flag for a MAC that
+starts the frame with the command write, and use exactly 63.5 periods
+there.
 
-If MDC runs freely, the frame can start up to a period after the
-command write, so by default bound the edge by 63.5 and 64.5 periods.
-Add MACB_CAPS_MDC_WRITE_SYNC for a MAC that starts the frame with
-the command write, as RP1 does, and use exactly 63.5 periods there.
+Set the flag for RP1. Measurements performed on a Raspberry Pi CM5 with
+its BCM54210PE PHY show the transfer consistently takes 63.5 periods.
+The PHY's PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC
+divisor was switched between 48 and 128 through /dev/mem. With 63.5
+periods, the PHC offset jumped by under 2 ns at each switch, after
+compensating for drift. A frame starting on average half a period after
+the command write would have made it jump by 200 ns. The spread of the
+PHC offsets also did not change with the divisor.
 
 write_sts runs under the MDIO bus lock, so it can't call
 clk_get_rate(), which takes the clock framework's prepare_lock: a
@@ -398,6 +401,7 @@ Notes for 4/5, after the `---` line (in the email, not the commit message):
 Changes in v2:
 - Bound the edge by 63.5 and 64.5 MDC periods by default, and use
   exactly 63.5 with MACB_CAPS_MDC_WRITE_SYNC, which RP1 sets
+- Explain how 63.5 follows from the frame timing
 - Record the MDC rate when the divisor is chosen, in place of reading
   NCFGR (Théo)
 - Explain why clk_get_rate() can't be called under the MDIO bus lock
