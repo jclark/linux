@@ -151,15 +151,26 @@ Changes in v2:
 
 ## Split
 
-v2 order (#22): the new timekeeping patch, 3/5 ptp, 1/5 mdio core (it uses
-`ptp_adjust_system_postts()`), 2/5 Broadcom PHY, 4/5 macb, 5/5 UniMAC. The headings below keep
-v1's numbers.
+v2 order (#22), as the patches are numbered: 1/6 timekeeping, 2/6 ptp, 3/6 mdio core (it uses
+`ptp_adjust_system_postts()`), 4/6 Broadcom PHY, 5/6 macb, 6/6 UniMAC. In v1 these were (new),
+3/5, 1/5, 2/5, 4/5 and 5/5.
 
 Each patch's changes since v1 are listed under "Changes in v2" in its notes after the `---` line
 (below its commit message). Whenever a change goes into the working tree, add an entry there for
 each patch it touches, in the same commit as the change.
 
-### 1/5 net: mdio: add timestamped write operation
+### 1/6 timekeeping: add ktime_scale_raw_ns()
+
+- `kernel/time/timekeeping.c`: `ktime_scale_raw_ns()`
+- `include/linux/timekeeping.h`: its declaration
+- Recipients: add John Stultz <jstultz@google.com> (M:) and Stephen Boyd <sboyd@kernel.org> (R:)
+
+### 2/6 ptp: add functions to adjust system timestamps
+
+- `include/linux/ptp_clock_kernel.h`: `__ptp_adjust_snapshot()`, `ptp_adjust_system_prets()`,
+  `ptp_adjust_system_postts()`
+
+### 3/6 net: mdio: add timestamped write operation
 
 - `include/linux/phy.h`: `write_sts` in `struct mii_bus`; `phy_supports_write_sts()`;
   `__phy_write_sts()`
@@ -168,34 +179,83 @@ each patch it touches, in the same commit as the change.
 - `drivers/net/phy/mdio_bus.c`: `__mdiobus_write_sts()`, `mdiobus_supports_write_sts()`
 - `drivers/net/mdio/mdio-mux.c`: `mdio_mux_write_sts()`, forwarding `write_sts` to the parent bus
 
-### 2/5 net: phy: broadcom: use timestamped MDIO writes in gettimex64
+### 4/6 net: phy: broadcom: use timestamped MDIO writes in gettimex64
 
 - `drivers/net/phy/bcm-phy-lib.c`, `bcm-phy-lib.h`: `bcm_phy_supports_write_exp_sts()`,
   `__bcm_phy_write_exp_sts()`, `bcm_phy_write_exp_sts()`
 - `drivers/net/phy/bcm-phy-ptp.c`: `bcm_ptp_framesync_sts()`, `bcm_ptp_framesync_ts()`
 
-### new in v2, before 3/5: timekeeping: add ktime_scale_raw_ns()
-
-- `kernel/time/timekeeping.c`: `ktime_scale_raw_ns()`
-- `include/linux/timekeeping.h`: its declaration
-- Recipients: add John Stultz <jstultz@google.com> (M:) and Stephen Boyd <sboyd@kernel.org> (R:)
-
-### 3/5 ptp: add functions to adjust system timestamps
-
-- `include/linux/ptp_clock_kernel.h`: `__ptp_adjust_snapshot()`, `ptp_adjust_system_prets()`,
-  `ptp_adjust_system_postts()`
-
-### 4/5 net: macb: implement timestamped MDIO writes
+### 5/6 net: macb: implement timestamped MDIO writes
 
 - `drivers/net/ethernet/cadence/macb.h`, `macb_main.c`
 
-### 5/5 net: mdio: bcm-unimac: implement timestamped MDIO writes
+### 6/6 net: mdio: bcm-unimac: implement timestamped MDIO writes
 
 - `drivers/net/mdio/mdio-bcm-unimac.c`
 
 ## Commit messages
 
-### 1/5
+### 1/6
+
+```
+timekeeping: add ktime_scale_raw_ns()
+
+Add ktime_scale_raw_ns(), which scales a duration in monotonic raw
+time by the frequency of a given clock relative to monotonic raw.
+
+A PTP driver that takes a ktime_get_snapshot_id() snapshot around a
+hardware access may know how long after the snapshot, in monotonic raw
+time, the hardware event happened. To shift the snapshot's time of the
+selected clock by the same interval, the duration has to be scaled by
+that clock's frequency relative to monotonic raw.
+
+Scale by tkr_mono.mult / tkr_raw.mult of the clock's timekeeper, as
+adjust_historical_crosststamp() does. For an AUX clock this is the AUX
+clock's own timekeeper.
+
+Signed-off-by: James Clark <jjc@jclark.com>
+Assisted-by: LLM
+```
+
+Notes for 1/6, after the `---` line (in the email, not the commit message):
+
+```
+Changes in v2:
+- New patch, for the ptp helpers in the next patch. In v1 they added
+  the CLOCK_MONOTONIC_RAW duration to the selected clock's time
+  unscaled, as the v1 notes for that patch said.
+```
+
+### 2/6
+
+```
+ptp: add functions to adjust system timestamps
+
+Add ptp_adjust_system_prets() and ptp_adjust_system_postts(), which
+shift the pre or post system timestamp by a given CLOCK_MONOTONIC_RAW
+duration. The selected clock's time is shifted by the duration scaled by
+that clock's current frequency relative to CLOCK_MONOTONIC_RAW, with
+ktime_scale_raw_ns().
+
+An MDIO bus driver can take system timestamps around the command that
+starts a write, and knows how long after that command the write
+completes, so it can shift the timestamps to bound the completion of
+the write.
+
+Signed-off-by: James Clark <jjc@jclark.com>
+Assisted-by: LLM
+```
+
+Notes for 2/6, after the `---` line (in the email, not the commit message):
+
+```
+Changes in v2:
+- Scale the shift of the selected clock's time by that clock's
+  frequency relative to CLOCK_MONOTONIC_RAW with ktime_scale_raw_ns(),
+  in place of adding the CLOCK_MONOTONIC_RAW duration unscaled.
+```
+
+### 3/6
 
 ```
 net: mdio: add timestamped write operation
@@ -230,7 +290,7 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
-Notes for 1/5, after the `---` line (in the email, not the commit message):
+Notes for 3/6, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
@@ -262,7 +322,7 @@ Changes in v2:
 - Moved after the ptp patch, whose helper it now uses
 ```
 
-### 2/5
+### 4/6
 
 ```
 net: phy: broadcom: use timestamped MDIO writes in gettimex64
@@ -314,7 +374,7 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
-Notes for 2/5, after the `---` line (in the email, not the commit message):
+Notes for 4/6, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
@@ -327,67 +387,7 @@ framesync capture in the BCM54210PE? If so, I can use it in place of
 the measured margin.
 ```
 
-### new in v2, before 3/5
-
-```
-timekeeping: add ktime_scale_raw_ns()
-
-Add ktime_scale_raw_ns(), which scales a duration in monotonic raw
-time by the frequency of a given clock relative to monotonic raw.
-
-A PTP driver that takes a ktime_get_snapshot_id() snapshot around a
-hardware access may know how long after the snapshot, in monotonic raw
-time, the hardware event happened. To shift the snapshot's time of the
-selected clock by the same interval, the duration has to be scaled by
-that clock's frequency relative to monotonic raw.
-
-Scale by tkr_mono.mult / tkr_raw.mult of the clock's timekeeper, as
-adjust_historical_crosststamp() does. For an AUX clock this is the AUX
-clock's own timekeeper.
-
-Signed-off-by: James Clark <jjc@jclark.com>
-Assisted-by: LLM
-```
-
-Notes for the timekeeping patch, after the `---` line (in the email, not the commit message):
-
-```
-Changes in v2:
-- New patch, for the ptp helpers in the next patch. In v1 they added
-  the CLOCK_MONOTONIC_RAW duration to the selected clock's time
-  unscaled, as the v1 notes for that patch said.
-```
-
-### 3/5
-
-```
-ptp: add functions to adjust system timestamps
-
-Add ptp_adjust_system_prets() and ptp_adjust_system_postts(), which
-shift the pre or post system timestamp by a given CLOCK_MONOTONIC_RAW
-duration. The selected clock's time is shifted by the duration scaled by
-that clock's current frequency relative to CLOCK_MONOTONIC_RAW, with
-ktime_scale_raw_ns().
-
-An MDIO bus driver can take system timestamps around the command that
-starts a write, and knows how long after that command the write
-completes, so it can shift the timestamps to bound the completion of
-the write.
-
-Signed-off-by: James Clark <jjc@jclark.com>
-Assisted-by: LLM
-```
-
-Notes for 3/5, after the `---` line (in the email, not the commit message):
-
-```
-Changes in v2:
-- Scale the shift of the selected clock's time by that clock's
-  frequency relative to CLOCK_MONOTONIC_RAW with ktime_scale_raw_ns(),
-  in place of adding the CLOCK_MONOTONIC_RAW duration unscaled.
-```
-
-### 4/5
+### 5/6
 
 ```
 net: macb: implement timestamped MDIO writes
@@ -431,7 +431,7 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
-Notes for 4/5, after the `---` line (in the email, not the commit message):
+Notes for 5/6, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
@@ -449,7 +449,7 @@ Changes in v2:
 - Express the delay with MDIO_C22_FRAME_BITS (Andrew)
 ```
 
-### 5/5
+### 6/6
 
 ```
 net: mdio: bcm-unimac: implement timestamped MDIO writes
@@ -501,7 +501,7 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
 ```
 
-Notes for 5/5, after the `---` line (in the email, not the commit message):
+Notes for 6/6, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
