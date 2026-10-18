@@ -211,12 +211,11 @@ The core provides no fallback, because a bus driver's write may return
 before the transfer has completed.
 
 An aux clock that is disabled and re-enabled restarts its raw time
-with the same clock_was_set_seq, so the core cannot always tell that
-the clock was reset during a write. Such a reset can fall within any
-PTP_SYS_OFFSET_EXTENDED sample, whatever the driver, and
-ptp_sys_offset_extended() does not check for it, so detecting it is
-left to the PTP core. The MDIO core only caps its wait for the upper
-bound, so that a reset cannot make it spin.
+with the same clock_was_set_seq, so the MDIO core cannot always tell
+that the clock was reset during a write. The same problem can occur
+within any PTP_SYS_OFFSET_EXTENDED sample, and the PTP core does not
+yet detect it. This patch leaves this problem to be fixed by the PTP
+core.
 
 __mdiobus_write_sts() takes the longest delay from completion of the
 write to the event being timed, such as a PHY capturing its time, and
@@ -247,8 +246,9 @@ Changes in v2:
   (Sashiko)
 - Explain why the core waits after write_sts() returns, and the 1 ms
   cap on that wait (Andrew, Sashiko)
-- Say why detecting an aux clock reset is left to the PTP core
-  (Sashiko)
+- Say that the MDIO core cannot detect every aux clock reset
+  (Sashiko), and that this is an existing gap, to be fixed in the PTP
+  core
 - Add an event delay argument to __mdiobus_write_sts() and
   __phy_write_sts(), added to the upper bound before the clock-step
   check, and to the 1 ms cap
