@@ -413,8 +413,7 @@ divisor was switched between 48 and 128 through /dev/mem. With 63.5
 periods, the PHC offset jumped by under 2 ns at each switch, after
 compensating for drift. A frame starting on average half a period after
 the command write would have made it jump by 200 ns. The spread of the
-PHC offsets also did not change with the divisor. Measurements have only
-been done on RP1, so the default bound is inferred.
+PHC offsets also did not change with the divisor.
 
 write_sts runs under the MDIO bus lock, so it can't call clk_get_rate(),
 which takes the clock framework's prepare_lock: a clock provider that
