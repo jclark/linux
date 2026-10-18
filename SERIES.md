@@ -384,12 +384,14 @@ compensating for drift. A frame starting on average half a period after
 the command write would have made it jump by 200 ns. The spread of the
 PHC offsets also did not change with the divisor.
 
-write_sts runs under the MDIO bus lock, so it can't call
-clk_get_rate(), which takes the clock framework's prepare_lock: a
-clock provider that does MDIO accesses, such as air_en8811h's, takes
-the two locks in the other order. So record the MDC rate when
-macb_mdc_clk_div() chooses the divisor. Like the divisor, the recorded
-rate does not follow a later change of the pclk rate.
+write_sts runs under the MDIO bus lock, so it can't call clk_get_rate(),
+which takes the clock framework's prepare_lock: a clock provider that
+does MDIO accesses, such as air_en8811h's, takes the two locks in the
+other order. So record the MDC rate when macb_mdc_clk_div() chooses the
+divisor, which it does at probe and when the MAC is opened or resumed.
+If the pclk rate changes after that, neither the driver nor write_sts
+adjusts to the new rate; handling this is outside the scope of this
+patch.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
@@ -406,6 +408,8 @@ Changes in v2:
   NCFGR (Théo)
 - Explain why clk_get_rate() can't be called under the MDIO bus lock
   (Théo)
+- Say that neither the driver nor write_sts adjusts to a change of the
+  pclk rate, and that handling one is outside the scope of this patch
 - A separate macb_mdio_write_c22_sts(), leaving macb_mdio_write_c22()
   unchanged, as Andrew asked for UniMAC
 - Express the delay with MDIO_C22_FRAME_BITS (Andrew)
