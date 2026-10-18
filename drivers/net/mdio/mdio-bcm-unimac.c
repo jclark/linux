@@ -189,7 +189,8 @@ static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 		return ret;
 
 	config = unimac_mdio_readl(priv, MDIO_CFG);
-	divisor = 2 * (((config >> MDIO_CLK_DIV_SHIFT) & MDIO_CLK_DIV_MASK) + 1);
+	divisor = 2 * (((config >> MDIO_CLK_DIV_SHIFT) &
+			MDIO_CLK_DIV_MASK) + 1);
 	bits = MDIO_C22_FRAME_BITS;
 	if (config & MDIO_SUPP_PREAMBLE) {
 		bits -= MDIO_PREAMBLE_BITS;

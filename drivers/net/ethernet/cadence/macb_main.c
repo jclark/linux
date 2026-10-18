@@ -457,6 +457,7 @@ static void macb_record_mdc_rate(struct macb *bp, unsigned long pclk_hz,
 static void macb_mdio_sts_delays(struct macb *bp, u64 *pre_ns, u64 *post_ns)
 {
 	u64 rate2 = 2ULL * READ_ONCE(bp->mdc_rate);
+	u64 half_periods = 2ULL * MDIO_C22_FRAME_BITS - 1;
 
 	/* The MDC edge that clocks the last bit comes half a period
 	 * before the end of the frame. A MAC with MACB_CAPS_MDC_WRITE_SYNC
@@ -464,13 +465,10 @@ static void macb_mdio_sts_delays(struct macb *bp, u64 *pre_ns, u64 *post_ns)
 	 * freely, so the frame starts up to one period after the command
 	 * write.
 	 */
-	*pre_ns = div64_u64((2ULL * MDIO_C22_FRAME_BITS - 1) * NSEC_PER_SEC,
-			    rate2);
-	if (bp->caps & MACB_CAPS_MDC_WRITE_SYNC)
-		*post_ns = *pre_ns;
-	else
-		*post_ns = div64_u64((2ULL * MDIO_C22_FRAME_BITS + 1) *
-				     NSEC_PER_SEC + rate2 - 1, rate2);
+	*pre_ns = div64_u64(half_periods * NSEC_PER_SEC, rate2);
+	if (!(bp->caps & MACB_CAPS_MDC_WRITE_SYNC))
+		half_periods += 2;
+	*post_ns = div64_u64(half_periods * NSEC_PER_SEC + rate2 - 1, rate2);
 }
 
 static int macb_mdio_write_c22_sts(struct mii_bus *bus, int mii_id, int regnum,

@@ -81,9 +81,9 @@ MDIO write transfer. Second, the bus driver uses a lower and an upper
 bound on the transfer time, including the preamble. The lower and upper
 timestamps taken around the start of the transfer are shifted
 separately, so that the returned bounds are guaranteed to contain the
-end of the transfer. Third, the PHY driver shifts the upper timestamp by
-a bound on the delay between the end of the transfer and the PHY acting
-on the write.
+end of the transfer. Third, the PHY driver gives a bound on the delay
+between the end of the transfer and the PHY acting on the write, which
+the MDIO core adds to the upper timestamp.
 
 This series also differs in having a write_sts operation, rather than an
 sts pointer in struct mii_bus. This allows the bus driver to compute the
@@ -116,9 +116,11 @@ PTP_SYS_OFFSET_EXTENDED agree to within about 0.15 µs.
 Changes in v2:
 - New timekeeping patch (1/6), so that the ptp helpers (2/6) scale the
   shift by the selected clock's current frequency
+- Patches reordered: the ptp helpers (was 3/5) now come before the mdio
+  core (was 1/5), which uses them
 - mdio core (3/6): sts required, clause 22 stated, and frame-length
   constants for the bus drivers (Andrew); an event delay added to the
-  upper bound; comments reworded (Andrew)
+  upper bound; the wait and its 1 ms cap explained (Andrew)
 - bcm-phy-ptp (4/6): a 350 ns bound on the PHY's capture delay, found by
   measurement
 - macb (5/6): wider bounds unless the MAC starts the frame with the
@@ -207,9 +209,7 @@ Notes for 1/6, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
-- New patch, for the ptp helpers in the next patch. In v1 they added
-  the CLOCK_MONOTONIC_RAW duration to the selected clock's time
-  unscaled, as the v1 notes for that patch said.
+- New patch, used by the ptp helpers in the next patch
 ```
 
 ### 2/6
@@ -238,7 +238,9 @@ Notes for 2/6, after the `---` line (in the email, not the commit message):
 Changes in v2:
 - Scale the shift of the selected clock's time by that clock's current
   frequency relative to CLOCK_MONOTONIC_RAW with ktime_scale_raw_ns(),
-  in place of adding the CLOCK_MONOTONIC_RAW duration unscaled.
+  in place of adding the CLOCK_MONOTONIC_RAW duration unscaled
+- Move before the mdio core patch (was 3/5), which now uses these
+  helpers
 ```
 
 ### 3/6
@@ -280,32 +282,26 @@ Notes for 3/6, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
-- @sts is required: __mdiobus_write_sts() no longer does an ordinary
-  write when it is NULL (Andrew)
+- Require @sts (Andrew)
 - Say that write_sts and __mdiobus_write_sts() do clause 22 writes
   (Andrew)
 - Wrap __phy_write_sts() to 80 columns (checkpatch)
-- Add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS, so that bus drivers
-  share the frame length (Andrew)
+- Add MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS for use by bus
+  drivers (Andrew)
 - Drop "callers must retry anyway" from the comment on the
-  clock-step check, which read as if retrying the write were safe
-  (Sashiko)
+  clock-step check (Sashiko)
 - Explain why the core waits after write_sts() returns, and the 1 ms
   cap on that wait (Andrew, Sashiko)
 - Say that the MDIO core cannot detect every aux clock reset
   (Sashiko), and that this is an existing gap, to be fixed in the PTP
   core
 - Say that -EBUSY and -EINVAL may be returned after the write has
-  taken effect
-- Read the time before each snapshot in the wait, so that a task
-  preempted past the 1 ms cap doesn't fail a write whose bound has
-  passed
-- Say "bounding completion" in place of "frame-end" in the
-  __phy_write_sts() summary
+  taken effect (Sashiko)
+- Read the time before each snapshot in the wait, so that a long
+  preemption can't fail a valid write
 - Add an event delay argument to __mdiobus_write_sts() and
-  __phy_write_sts(), added to the upper bound before the clock-step
-  check, and to the 1 ms cap
-- Moved after the ptp patch, whose helper it now uses
+  __phy_write_sts(), added to the upper bound
+- Move after the ptp patch, whose helper it now uses
 ```
 
 ### 4/6
@@ -365,13 +361,15 @@ Notes for 4/6, after the `---` line (in the email, not the commit message):
 ```
 Changes in v2:
 - Take into account the PHY's capture delay, with a bound of 350 ns
-  found by measurement (Sashiko)
+  found by measurement
+- Say that gettimex64 can now return -EBUSY if the clock is stepped
+  during the write
 - Say that the tighter bounds need a bus driver with write_sts
   (Sashiko)
 
-Does Broadcom know the delay from the end of the MDIO write to the
-framesync capture in the BCM54210PE? If so, I can use it in place of
-the measured bound.
+Does Broadcom know the BCM54210PE's capture delay, from the end of the
+MDIO write to the framesync capture? If so, I can use it in place of
+the 350 ns bound found by measurement.
 ```
 
 ### 5/6
@@ -431,8 +429,8 @@ Changes in v2:
   (Théo)
 - Say that neither the driver nor write_sts adjusts to a change of the
   pclk rate, and that handling one is outside the scope of this patch
-- A separate macb_mdio_write_c22_sts(), leaving macb_mdio_write_c22()
-  unchanged, as Andrew asked for UniMAC
+- Make macb_mdio_write_c22_sts() separate from macb_mdio_write_c22(),
+  as Andrew asked for UniMAC
 - Express the delay with MDIO_C22_FRAME_BITS (Andrew)
 ```
 
@@ -492,17 +490,14 @@ Notes for 6/6, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
-- Take the reference rate from a clock on the mdio node, in place of
-  the 200 MHz assumed for BCM2711 after checking the parent's
-  compatible (Florian, Nicolai)
+- Take the reference rate from a clock on the mdio node, and offer
+  write_sts only when there is one, instead of hardcoding 200 MHz for
+  brcm,bcm2711-genet-v5 (Florian, Nicolai)
 - Allow for a suppressed preamble, in place of not offering write_sts
-  (Andrew); the upper bound allows for the 33 periods the UniMAC sends
-  on BCM2711
+  (Andrew)
 - Explain how 63.5 to 64.5 follows from the frame timing
-- A failed lookup of the reference clock only disables write_sts,
-  apart from a probe deferral
-- A separate unimac_mdio_write_sts(), leaving unimac_mdio_write()
-  unchanged (Andrew)
+- Make unimac_mdio_write_sts() separate from unimac_mdio_write()
+  (Andrew)
 - Express the delay with MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS
   (Andrew)
 - Wrap a line to 80 columns (checkpatch)

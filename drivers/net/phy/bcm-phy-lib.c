@@ -52,8 +52,8 @@ static int __bcm_phy_write_exp_sts(struct phy_device *phydev, u16 reg, u16 val,
 	if (rc < 0)
 		return rc;
 
-	return __phy_write_sts(phydev, MII_BCM54XX_EXP_DATA, val, event_delay_ns,
-			       sts);
+	return __phy_write_sts(phydev, MII_BCM54XX_EXP_DATA, val,
+			       event_delay_ns, sts);
 }
 
 int bcm_phy_write_exp_sts(struct phy_device *phydev, u16 reg, u16 val,
