@@ -343,8 +343,8 @@ ptp: add functions to adjust system timestamps
 
 Add ptp_adjust_system_prets() and ptp_adjust_system_postts(), which
 shift the pre or post system timestamp by a given CLOCK_MONOTONIC_RAW
-duration. The selected clock's time is shifted by the duration scaled
-by that clock's frequency relative to CLOCK_MONOTONIC_RAW, with
+duration. The selected clock's time is shifted by the duration scaled by
+that clock's current frequency relative to CLOCK_MONOTONIC_RAW, with
 ktime_scale_raw_ns().
 
 An MDIO bus driver can take system timestamps around the command that
