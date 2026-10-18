@@ -158,7 +158,8 @@ EXPORT_SYMBOL(__mdiobus_write);
  *	 @event_delay_ns after completion of the transfer
  *
  * Return: Zero if successful, negative error code on failure. Returns
- *	   -EBUSY or -EINVAL if the system timestamps are not valid.
+ *	   -EBUSY or -EINVAL if the system timestamps are not valid; these
+ *	   codes may be returned after the write has taken effect.
  *	   -EOPNOTSUPP is returned only if mdiobus_supports_write_sts() is
  *	   false.
  *

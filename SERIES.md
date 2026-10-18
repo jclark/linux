@@ -249,6 +249,8 @@ Changes in v2:
 - Say that the MDIO core cannot detect every aux clock reset
   (Sashiko), and that this is an existing gap, to be fixed in the PTP
   core
+- Say that -EBUSY and -EINVAL may be returned after the write has
+  taken effect (Sashiko)
 - Add an event delay argument to __mdiobus_write_sts() and
   __phy_write_sts(), added to the upper bound before the clock-step
   check, and to the 1 ms cap
