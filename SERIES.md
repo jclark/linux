@@ -114,6 +114,8 @@ synchronized from it, the system clock and the PHY's PHC read with
 PTP_SYS_OFFSET_EXTENDED agree to within about 0.15 µs.
 
 Changes in v2:
+- Improved measurement method (described in 4/6), which measures the
+  synchronization error more precisely
 - New timekeeping patch (1/6), so that the ptp helpers (2/6) scale the
   shift by the selected clock's current frequency
 - Patches reordered: the ptp helpers (was 3/5) now come before the mdio
