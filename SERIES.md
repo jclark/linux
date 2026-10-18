@@ -288,6 +288,8 @@ system time of the PHC reading in each PTP_SYS_OFFSET_EXTENDED sample
 was estimated by interpolating between the PHC/system time pairs of the
 pulses on either side of it. Over about 30,000 samples, every estimate
 was at least 285 ns after the lower system time bound of the sample.
+The write cannot complete before the lower bound, so the delay can be no
+more than the gap from the lower bound to the capture.
 However, the polling brackets are about 150 ns wide. Compensating for
 polling error by considering neighbouring pulses gives an upper bound of
 at most 330 ns; BCM_FRAMESYNC_CAPTURE_NS uses this rounded up to 350 ns,
