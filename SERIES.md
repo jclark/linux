@@ -482,12 +482,14 @@ have only been done on BCM2711, so the bounds for other UniMACs are
 inferred.
 
 Take the reference rate from a clock on the mdio node, and offer
-write_sts only when there is one. When GENET creates the UniMAC
-device, the clock it passes is its own main clock, which gates
-register access but is not the MDC reference. No in-tree DT gives an
-mdio node a clock yet. For BCM2711, the GISB clock, which MDC is
-divided from, is being added to clk-bcm2835 separately. It is marked
-critical there, so the UniMAC driver does not need to enable it.
+write_sts only when there is one. This is how the standalone UniMAC
+already uses that clock: unimac_mdio_clk_set() computes the MDC divider
+from its rate. When GENET creates the UniMAC device, the clock it passes
+is its own main clock, which gates register access but is not the MDC
+reference. No in-tree DT gives an mdio node a clock yet. For BCM2711,
+the GISB clock, which MDC is divided from, is being added to clk-bcm2835
+separately. It is marked critical there, so the UniMAC driver does not
+need to enable it.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
