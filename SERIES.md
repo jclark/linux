@@ -477,8 +477,7 @@ between 9 and 39 through /dev/mem. With 64 periods, the midpoint of the
 bounds, the PHC offset jumped by under 10 ns at each switch, after
 compensating for drift. With 63.5 periods it would have jumped by
 150 ns. The PHC offsets also spread evenly over one MDC period at each
-divider. Measurements have only been done on BCM2711, so the bounds for
-other UniMACs are inferred.
+divider.
 
 Without the preamble, a clause 22 frame is 32 MDC periods long. But with
 the preamble suppressed, the same test put the edge one period later
