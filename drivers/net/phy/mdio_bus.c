@@ -219,6 +219,8 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 	deadline = ktime_add_ns(ktime_get_raw(),
 				(u64)event_delay_ns + NSEC_PER_MSEC);
 	for (;;) {
+		bool late = !ktime_before(ktime_get_raw(), deadline);
+
 		ktime_get_snapshot_id(sts->clockid, &now);
 		if (!now.valid)
 			return -EINVAL;
@@ -229,7 +231,7 @@ int __mdiobus_write_sts(struct mii_bus *bus, int addr, u32 regnum, u16 val,
 		if (!ktime_before(now.monoraw, sts->post_sts.monoraw))
 			return 0;
 
-		if (!ktime_before(ktime_get_raw(), deadline))
+		if (late)
 			return -EBUSY;
 
 		cpu_relax();
