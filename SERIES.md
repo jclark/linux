@@ -490,7 +490,8 @@ is its own main clock, which gates register access but is not the MDC
 reference. No in-tree DT gives an mdio node a clock yet. For BCM2711,
 the GISB clock, which MDC is divided from, is being added to clk-bcm2835
 separately. It is marked critical there, so the UniMAC driver does not
-need to enable it.
+need to enable it. A deferral of the clock lookup is passed on, as for
+any clock, so the MDIO bus waits for the clock's provider.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 Assisted-by: LLM
