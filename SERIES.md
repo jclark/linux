@@ -52,9 +52,10 @@ computes them by shifting the timestamps taken around the start of the
 transfer by bounds on its duration, worked out from the MDC period and
 the length of the frame. The series:
 
+- adds a timekeeping function to scale a CLOCK_MONOTONIC_RAW duration
+  by a clock's frequency;
+- adds ptp helpers that use it to shift system timestamps;
 - adds the operation to the MDIO core;
-- adds ktime_scale_raw_ns() to timekeeping, and ptp helpers that use it
-  to shift system timestamps by a CLOCK_MONOTONIC_RAW duration;
 - makes bcm-phy-ptp use the operation for the write that triggers the
   capture of the PHC time, allowing 350 ns for the PHY to capture it;
 - implements the operation for macb, with tighter bounds on RP1, where
@@ -65,81 +66,71 @@ the length of the frame. The series:
   get write_sts, and nothing changes.
 
 The effect of this series is to reduce PTP_SYS_OFFSET_EXTENDED brackets
-from 74 µs to about 1.3 µs on the CM5, and from 42 µs to about 0.9 µs on
-the CM4. The synchronization error drops from 32 µs and 7 µs to tenths
-of microseconds, below the level that can be reliably measured with the
-methods below.
+from 74 µs to about 1.5 µs on the CM5, and from 42 µs to about 1.0 µs
+on the CM4. The synchronization error drops from 32 µs to about 0.1 µs
+on the CM5, and from 7 µs to about 60 ns on the CM4.
+
+There was an earlier proposal addressing a similar problem, in 2019, for
+the PHC of mv88e6xxx switches [2]. In the relevant respects the
+situation is the same as with the BCM PHY: the PHC is read over MDIO
+with several transfers, and one write fixes the moment at which the
+clock is sampled. Richard and Andrew suggested taking the system
+timestamps in the MDIO bus driver, around that write, and Hubert
+Feurstein posted a series implementing this [3][4][5].
+
+Like Hubert's v2 and v3, this series shifts the timestamps to allow for
+the time the transfer takes. The discussion of that raised some points,
+which this series addresses. First, the meaning of the timestamps
+returned by the MDIO core operation is clear: they bound the end of the
+MDIO write transfer. Second, the bus driver uses a lower and an upper
+bound on the transfer time, including the preamble. The lower and upper
+timestamps taken around the start of the transfer are shifted
+separately, so that the returned bounds are guaranteed to contain the
+end of the transfer. Third, the PHY driver shifts the upper timestamp by
+a bound on the delay between the end of the transfer and the PHY acting
+on the write.
+
+This series also differs in having a write_sts operation, rather than an
+sts pointer in struct mii_bus. This allows the bus driver to compute the
+transfer time bounds at each call, from the same divider and clock rate
+that it uses to set the MDC speed. Unlike Andrew's suggestion, there is
+no fallback in the core, because a bus driver's write may return before
+the transfer has completed.
+
+The earlier discussion also raised interrupts arriving between the
+timestamps and the write, and the latency of the posted write. In this
+series, the bus drivers take the timestamps with local interrupts
+disabled, and flush the posted write before taking the upper timestamp.
 
 SPI introduced a similar facility to allow a device driver to obtain
 timestamp bounds from the bus controller in commit 79591b7db21d ("spi:
-Add a PTP system timestamp to the transfer structure"). This series
-implements the operation for only one PHY driver. But I surveyed other
-PHY drivers and identified at least two for which this operation could
-be implemented: micrel (specifically LAN8814) and dp83640, although
-they would need updating to use gettimex64 first.
+Add a PTP system timestamp to the transfer structure").
 
-Prior art
----------
+This series implements the operation for only one PHY driver. But I
+surveyed other PHY drivers and identified at least two for which this
+operation could be implemented: micrel (specifically LAN8814) and
+dp83640, although they would need updating to use gettimex64 first.
 
-A discussion in 2019 dealt with the same problem for the PHC of
-mv88e6xxx switches [2]: the PHC is read over MDIO with several
-transfers, and one write fixes the moment at which the clock is
-sampled. Richard and Andrew suggested taking the system timestamps in
-the MDIO bus driver, around that write, and Hubert Feurstein posted a
-series implementing this [3][4][5]. This series settles the points
-raised there. The timestamps bound the end of the write transfer. The
-bus driver shifts the lower and upper timestamps by separate bounds on
-the transfer time, measured on hardware, so the result is guaranteed
-to contain the end of the transfer (Miroslav). The bus drivers take
-the timestamps with local interrupts disabled, and flush the posted
-write before taking the upper timestamp (Vladimir). And the PHY driver
-allows for the delay between the end of the transfer and the PHY
-capturing its time.
-
-It differs in having a write_sts operation, rather than an sts pointer
-in struct mii_bus. This allows the bus driver to compute the bounds at
-each call, from the same divider and clock rate that it uses to set the
-MDC speed. There is no fallback in the core, because a bus driver's
-write may return before the transfer has completed.
-
-Measurement
------------
-
-On both boards, the same PPS signal from a GPS receiver goes to the
-PHY's SYNC pin and to GPIO 18 (header pin 12), and the PHC is
-synchronized to it from the SYNC pin captures. The system time of each
-pulse is measured by polling the GPIO register with ppsbias
-(https://github.com/jclark/ppsbias), and compared with the system time
-that PTP_SYS_OFFSET_EXTENDED gives for the same PHC time. On the CM4
-the GPIO is on-chip, so a poll takes about 0.15 µs and the polling
-error is under 0.1 µs. On the CM5 the GPIO is on RP1, across PCIe, so
-the measurement is less precise there.
-
-On the CM5 the MAC PHC gives a second check. /dev/ptp1 is the macb PHC,
-whose PTP_SYS_OFFSET_EXTENDED brackets are about 1 µs since commit
-9ca4ba242591 ("net: macb: fix ordering around PTP timestamp read").
-With /dev/ptp1 synchronized to a PTP grandmaster and the system clock
-synchronized from it, the offset between the system clock and the
-result of PTP_SYS_OFFSET_EXTENDED on the BCM54210PE PHC agrees with
-ppsbias.
+The measurements come from the method described in patch 4/6, with
+ppsbias (https://github.com/jclark/ppsbias) timing the PPS on the GPIO.
+On the CM5 this is consistent with an independent check: with the MAC's
+PHC synchronized by PTP to an external grandmaster, and the system clock
+synchronized from it, the system clock and the PHY's PHC read with
+PTP_SYS_OFFSET_EXTENDED agree to within about 0.15 µs.
 
 Changes in v2:
-- New timekeeping patch adding ktime_scale_raw_ns(); the ptp helpers
-  use it to scale the shift by the selected clock's frequency
-- mdio core: the sts argument is required, the documentation says
-  clause 22, and MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS give the
-  bus drivers the frame length (Andrew); the comment on the clock-step
-  check shortened, and the one on the 1 ms cap reworded (Andrew,
-  Sashiko); an event delay added to the upper bound, covered by the
-  clock-step check, and to the 1 ms cap; moved after the ptp patch,
-  whose helper it uses
-- bcm-phy-ptp: the PHY's capture delay taken into account (Sashiko)
-- macb: wider bounds unless the MAC starts the frame with the command
-  write, as RP1 does; the MDC rate recorded when the divisor is chosen
-  (Théo); a separate write function
-- UniMAC: the reference rate from a clock on the mdio node, in place of
-  200 MHz assumed for BCM2711 (Florian, Nicolai); a suppressed preamble
-  allowed, and a separate write function (Andrew)
+- New timekeeping patch (1/6), so that the ptp helpers (2/6) scale the
+  shift by the selected clock's current frequency
+- mdio core (3/6): sts required, clause 22 stated, and frame-length
+  constants for the bus drivers (Andrew); an event delay added to the
+  upper bound; comments reworded (Andrew)
+- bcm-phy-ptp (4/6): a 350 ns bound on the PHY's capture delay, found by
+  measurement
+- macb (5/6): wider bounds unless the MAC starts the frame with the
+  command write, as RP1 does; the MDC rate recorded when the divisor is
+  chosen (Théo)
+- UniMAC (6/6): the reference rate from a clock on the mdio node
+  (Florian, Nicolai); a suppressed preamble allowed (Andrew)
 - v1: https://lore.kernel.org/netdev/20261009143506.2507607-1-jjc@jclark.com/
 
 [1] https://lore.kernel.org/netdev/41c32f5a6f38ec9df8a79ce896912fb9@tipi-net.de/
@@ -250,7 +241,7 @@ Notes for 2/6, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
-- Scale the shift of the selected clock's time by that clock's
+- Scale the shift of the selected clock's time by that clock's current
   frequency relative to CLOCK_MONOTONIC_RAW with ktime_scale_raw_ns(),
   in place of adding the CLOCK_MONOTONIC_RAW duration unscaled.
 ```
@@ -378,13 +369,14 @@ Notes for 4/6, after the `---` line (in the email, not the commit message):
 
 ```
 Changes in v2:
-- Take into account the PHY's capture delay (Sashiko)
+- Take into account the PHY's capture delay, with a bound of 350 ns
+  found by measurement (Sashiko)
 - Say that the tighter bounds need a bus driver with write_sts
   (Sashiko)
 
 Does Broadcom know the delay from the end of the MDIO write to the
 framesync capture in the BCM54210PE? If so, I can use it in place of
-the measured margin.
+the measured bound.
 ```
 
 ### 5/6
@@ -512,6 +504,8 @@ Changes in v2:
   (Andrew); the upper bound allows for the 33 periods the UniMAC sends
   on BCM2711
 - Explain how 63.5 to 64.5 follows from the frame timing
+- A failed lookup of the reference clock only disables write_sts,
+  apart from a probe deferral
 - A separate unimac_mdio_write_sts(), leaving unimac_mdio_write()
   unchanged (Andrew)
 - Express the delay with MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS
