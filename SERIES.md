@@ -297,10 +297,11 @@ which also covers a possible variation of 8 ns in the delay,
 corresponding to one period of the PHY's 125 MHz clock.
 
 This assumes that the delay is a property of the PHY, so that it applies
-equally with other MDIO buses. Changing the MDC rate changed the delay
-by less than 10 ns. Measurements on a Raspberry Pi CM5, where the same
-PHY is on the RP1's macb, are consistent with the CM4 measurements. But
-there the GPIO is polled across PCIe, so the polling brackets are wider.
+equally with other MDIO buses. Changing the MDC period between 100 and
+400 ns changed the delay by less than 10 ns. Measurements on a Raspberry
+Pi CM5, where the same PHY is on the RP1's macb, are consistent with the
+CM4 measurements. But there the GPIO is polled across PCIe, so the
+polling brackets are wider.
 
 gettimex64 can now return -EBUSY if the clock is stepped during the
 write, as gettimex64 already can in other drivers, such as mvpp2 and
