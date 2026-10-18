@@ -420,25 +420,28 @@ Implement write_sts to provide system timestamp bounds for completion
 of an MDIO write. This enables tighter system timestamp bounds in PHY
 implementations of gettimex64.
 
-Take system timestamps around the command start, then add the time
-from the command start until the MDC edge that clocks the last data
-bit, calculated from the reference clock rate and the configured MDC
-divider.
+Take system timestamps around the command start, then shift them by
+the time from the command start until the MDC edge that clocks the last
+data bit, calculated from the reference clock rate and the configured
+MDC divider.
 
-The edge comes half an MDC period before the end of the 64-bit frame,
-or of the 32-bit frame when the preamble is suppressed. On BCM2711 the
-MDC divider runs freely, so the frame starts up to one period after
-the command start, and the edge comes 63.5 to 64.5 periods after it.
-This was measured on a Raspberry Pi CM4 with its BCM54210PE PHY. The
-PHY's PHC was read with PTP_SYS_OFFSET_EXTENDED while the MDC divider
-field was switched between 9 and 39 through /dev/mem. The delay grew
-by 640 ns for each step of the divider field, which is 64 periods of
-the 200 MHz reference clock: with 64 periods, the jump in the PHC
-offset at each switch was under 10 ns after compensating for drift.
-The PHC offsets spread evenly over one MDC period at each divider. A
-UniMAC whose divider restarted with the command would put the edge at
-63.5 periods, still within these bounds. The frame without preamble
-has not been measured.
+A clause 22 frame is 64 MDC periods long, or 32 when the preamble is
+suppressed, and the transfer ends on the rising edge of MDC in the last
+period, half way through it. So if the frame starts with the command
+start, that edge comes 63.5 periods after the command start. If MDC runs
+freely, the frame can start up to one period after the command start,
+so bound the edge by 63.5 and 64.5 periods, or by 31.5 and 32.5 without
+the preamble. A UniMAC whose divider restarts with the command puts the
+edge at 63.5 periods, still within these bounds.
+
+Measurements performed on a Raspberry Pi CM4 with its BCM54210PE PHY
+show that the MDC divider of BCM2711 runs freely. The PHY's PHC was read
+with PTP_SYS_OFFSET_EXTENDED while the MDC divider field was switched
+between 9 and 39 through /dev/mem. With 64 periods, the midpoint of the
+bounds, the PHC offset jumped by under 10 ns at each switch, after
+compensating for drift. With 63.5 periods it would have jumped by
+150 ns. The PHC offsets also spread evenly over one MDC period at each
+divider. The frame without preamble has not been measured.
 
 Take the reference rate from a clock on the mdio node, and offer
 write_sts only when there is one. When GENET creates the UniMAC
@@ -460,6 +463,7 @@ Changes in v2:
   compatible (Florian, Nicolai)
 - Allow for a suppressed preamble with a 32-bit frame, in place of not
   offering write_sts (Andrew)
+- Explain how 63.5 to 64.5 follows from the frame timing
 - A separate unimac_mdio_write_sts(), leaving unimac_mdio_write()
   unchanged (Andrew)
 - Express the delay with MDIO_C22_FRAME_BITS and MDIO_PREAMBLE_BITS
