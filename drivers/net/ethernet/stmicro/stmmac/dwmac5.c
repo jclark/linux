@@ -557,7 +557,12 @@ int dwmac5_flex_pps_config(void __iomem *ioaddr, int index,
 	if (period <= 1)
 		return -EINVAL;
 
-	writel(period - 1, ioaddr + MAC_PPSx_INTERVAL(index));
+	/* In fine update mode the PPS interval counter restarts one sub-second
+	 * increment early (a Synopsys erratum), so the period is INTERVAL
+	 * increments rather than the documented INTERVAL + 1.
+	 */
+	writel(period - (systime_flags & PTP_TCR_TSCFUPDT ? 0 : 1),
+	       ioaddr + MAC_PPSx_INTERVAL(index));
 
 	period >>= 1;
 	if (period <= 1)
