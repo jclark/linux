@@ -499,6 +499,11 @@ static int onboard_dev_probe(struct platform_device *pdev)
 	 * onboard_dev_remove() (e.g. through an 'unbind' by userspace),
 	 * make sure to re-attach it if needed.
 	 *
+	 * This is also needed for USB devices that enumerated while this
+	 * platform device was still unbound (e.g. because this probe was
+	 * deferred): their USB device probe rejected the match, see
+	 * _find_onboard_dev().
+	 *
 	 * This needs to be done deferred to avoid self-deadlocks on systems
 	 * with nested onboard hubs.
 	 */
@@ -606,13 +611,19 @@ static struct onboard_dev *_find_onboard_dev(struct device *dev)
 
 	/*
 	 * The presence of drvdata indicates that the platform driver finished
-	 * probing. This handles the case where (conceivably) we could be
-	 * running at the exact same time as the platform driver's probe. If
-	 * we detect the race we request probe deferral and we'll come back and
-	 * try again.
+	 * probing. Without it the USB device can't be attached to the
+	 * platform device yet.
+	 *
+	 * Reject the match in that case; the platform driver binds this
+	 * driver once it has probed (see attach_usb_driver_work). Returning
+	 * -EPROBE_DEFER wouldn't work: the generic probe has already bound
+	 * the interface drivers, which triggers deferred probing, so the
+	 * device would be re-probed in a loop until the platform device is
+	 * bound. Returning -ENODEV wouldn't work either: the USB core would
+	 * bind the generic driver and keep this driver from binding later.
 	 */
 	if (!onboard_dev)
-		return ERR_PTR(-EPROBE_DEFER);
+		return ERR_PTR(-ENXIO);
 
 	return onboard_dev;
 }
