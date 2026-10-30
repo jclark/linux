@@ -43,6 +43,7 @@
 #define USB5744_CREG_BYPASS_UDC_SUSPEND		BIT(3)
 
 static void onboard_dev_attach_usb_driver(struct work_struct *work);
+static struct onboard_dev *_find_onboard_dev(struct device *dev);
 
 static struct usb_device_driver onboard_dev_usbdev_driver;
 static DECLARE_WORK(attach_usb_driver_work, onboard_dev_attach_usb_driver);
@@ -301,6 +302,47 @@ static const struct attribute_group onboard_dev_group = {
 __ATTRIBUTE_GROUPS(onboard_dev);
 
 
+/*
+ * Attach a USB device that was bound by onboard_dev_usbdev_probe() while its
+ * platform device was still unbound. The device lock serialises this with
+ * the probe and with an unbind. This walks the USB bus, not the driver's
+ * device list: unbinding a device holds its lock while it waits for all
+ * references to its node on the driver's list to be dropped, so an iterator
+ * over that list that takes the device lock would deadlock with it.
+ */
+static int onboard_dev_attach_usbdev(struct usb_device *udev, void *data)
+{
+	struct device *dev = &udev->dev;
+	struct onboard_dev *onboard_dev;
+	int err;
+
+	/* Unlocked pre-check, so as not to wait for every USB device's lock. */
+	if (READ_ONCE(dev->driver) != &onboard_dev_usbdev_driver.driver)
+		return 0;
+
+	device_lock(dev);
+
+	if (dev->driver != &onboard_dev_usbdev_driver.driver ||
+	    dev_get_drvdata(dev))
+		goto out;
+
+	onboard_dev = _find_onboard_dev(dev);
+	if (IS_ERR_OR_NULL(onboard_dev))
+		goto out;
+
+	err = onboard_dev_add_usbdev(onboard_dev, udev);
+	if (err)
+		dev_err(dev, "failed to attach to %s: %pe\n",
+			dev_name(onboard_dev->dev), ERR_PTR(err));
+	else
+		dev_set_drvdata(dev, onboard_dev);
+
+out:
+	device_unlock(dev);
+
+	return 0;
+}
+
 static void onboard_dev_attach_usb_driver(struct work_struct *work)
 {
 	int err;
@@ -308,6 +350,8 @@ static void onboard_dev_attach_usb_driver(struct work_struct *work)
 	err = driver_attach(&onboard_dev_usbdev_driver.driver);
 	if (err)
 		pr_err("Failed to attach USB driver: %pe\n", ERR_PTR(err));
+
+	usb_for_each_dev(NULL, onboard_dev_attach_usbdev);
 }
 
 #if IS_ENABLED(CONFIG_USB_ONBOARD_DEV_USB5744)
@@ -497,7 +541,10 @@ static int onboard_dev_probe(struct platform_device *pdev)
 	/*
 	 * The USB driver might have been detached from the USB devices by
 	 * onboard_dev_remove() (e.g. through an 'unbind' by userspace),
-	 * make sure to re-attach it if needed.
+	 * make sure to re-attach it if needed. The work also attaches USB
+	 * devices that were probed while this platform device was still
+	 * unbound (e.g. because this probe was deferred), see
+	 * onboard_dev_usbdev_probe().
 	 *
 	 * This needs to be done deferred to avoid self-deadlocks on systems
 	 * with nested onboard hubs.
@@ -606,14 +653,9 @@ static struct onboard_dev *_find_onboard_dev(struct device *dev)
 
 	/*
 	 * The presence of drvdata indicates that the platform driver finished
-	 * probing. This handles the case where (conceivably) we could be
-	 * running at the exact same time as the platform driver's probe. If
-	 * we detect the race we request probe deferral and we'll come back and
-	 * try again.
+	 * probing. Without it the USB device can't be attached to the platform
+	 * device yet; return NULL and let the caller decide what to do.
 	 */
-	if (!onboard_dev)
-		return ERR_PTR(-EPROBE_DEFER);
-
 	return onboard_dev;
 }
 
@@ -635,6 +677,21 @@ static int onboard_dev_usbdev_probe(struct usb_device *udev)
 
 	dev_set_drvdata(dev, onboard_dev);
 
+	/*
+	 * The platform device may not be bound yet (e.g. because its probe
+	 * was deferred). Bind to the USB device anyway, with NULL drvdata,
+	 * and let the platform driver attach it once it has probed (see
+	 * attach_usb_driver_work). Requesting probe deferral here wouldn't
+	 * work: the generic probe has already bound the interface drivers,
+	 * which triggers deferred probing, so the device would be re-probed
+	 * in a loop until the platform device is bound. Returning -ENXIO
+	 * doesn't work either: the device is then left without a driver and
+	 * can't be resumed once it has autosuspended. Returning -ENODEV
+	 * hands it to the generic driver for good.
+	 */
+	if (!onboard_dev)
+		return 0;
+
 	err = onboard_dev_add_usbdev(onboard_dev, udev);
 	if (err)
 		return err;
@@ -646,7 +703,8 @@ static void onboard_dev_usbdev_disconnect(struct usb_device *udev)
 {
 	struct onboard_dev *onboard_dev = dev_get_drvdata(&udev->dev);
 
-	onboard_dev_remove_usbdev(onboard_dev, udev);
+	if (onboard_dev)
+		onboard_dev_remove_usbdev(onboard_dev, udev);
 }
 
 static const struct usb_device_id onboard_dev_id_table[] = {
