@@ -1301,7 +1301,9 @@ struct usb_driver {
  *	for devices bound to this driver.
  * @generic_subclass: if set to 1, the generic USB driver's probe, disconnect,
  *	resume and suspend functions will be called in addition to the driver's
- *	own, so this part of the setup does not need to be replicated.
+ *	own, so this part of the setup does not need to be replicated. The
+ *	driver's probe is called first, before the device is configured, and
+ *	the generic probe is skipped if it returns -EPROBE_DEFER.
  *
  * USB device drivers must provide a name, other driver fields are optional.
  */

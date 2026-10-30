@@ -263,11 +263,6 @@ static int usb_probe_device(struct device *dev)
 	if (error)
 		return error;
 
-	if (udriver->generic_subclass)
-		error = usb_generic_driver_probe(udev);
-	if (error)
-		return error;
-
 	/* Probe the USB device with the driver in hand, but only
 	 * defer to a generic driver in case the current USB
 	 * device driver has an id_table or a match function; i.e.,
@@ -293,6 +288,23 @@ static int usb_probe_device(struct device *dev)
 		error = udriver->probe(udev);
 	else if (!udriver->generic_subclass)
 		error = -EINVAL;
+
+	/*
+	 * A deferred probe must leave no trace. The generic probe configures
+	 * the device and so binds the interface drivers, and every binding
+	 * triggers deferred probing again; had it run first, a probe that
+	 * deferred would be retried straight away, and the device re-probed
+	 * in a loop. So run it only afterwards, and not at all on deferral.
+	 */
+	if (error == -EPROBE_DEFER)
+		return error;
+	if (udriver->generic_subclass) {
+		int ret = usb_generic_driver_probe(udev);
+
+		if (!error)
+			error = ret;
+	}
+
 	if (error == -ENODEV && udriver != &usb_generic_driver &&
 	    (udriver->id_table || udriver->match)) {
 		udev->use_generic_driver = 1;
