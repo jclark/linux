@@ -5,11 +5,13 @@
  *
  */
 
+#include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/err.h>
 #include <linux/if_vlan.h>
 #include <linux/interrupt.h>
+#include <linux/mfd/syscon.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/net_tstamp.h>
@@ -19,6 +21,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/ptp_classify.h>
 #include <linux/ptp_clock_kernel.h>
+#include <linux/regmap.h>
 
 #include "am65-cpts.h"
 
@@ -128,6 +131,10 @@ struct am65_cpts_regs {
 #define AM65_CPTS_EVENT_2_REG_DOMAIN_MASK	(0xFF)
 #define AM65_CPTS_EVENT_2_REG_DOMAIN_SHIFT	(0)
 
+/* GTC_CFG0_PUSHEVT_REG */
+#define AM65_CPTS_GTC_PUSHEVT			0x8
+#define AM65_CPTS_GTC_PUSHEVT_EXPBIT_SEL	GENMASK(5, 0)
+
 enum {
 	AM65_CPTS_EV_PUSH,	/* Time Stamp Push Event */
 	AM65_CPTS_EV_ROLL,	/* Time Stamp Rollover Event */
@@ -152,6 +159,10 @@ struct am65_cpts_event {
 #define AM65_CPTS_EVENT_RX_TX_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_SKB_TX_WORK_TIMEOUT	1 /* jiffies */
 #define AM65_CPTS_MIN_PPM		0x400
+#define AM65_CPTS_GTC_PUSH_BIT		18 /* 2.6 ms period at 200 MHz */
+#define AM65_CPTS_GTC_PUSH_PERIOD	BIT_ULL(AM65_CPTS_GTC_PUSH_BIT + 1)
+#define AM65_CPTS_GTC_PUSH_TIMEOUT	(20) /* ms */
+#define AM65_CPTS_GTC_PUSH_TRIES	3
 
 struct am65_cpts {
 	struct device *dev;
@@ -186,6 +197,13 @@ struct am65_cpts {
 	bool pps_present;
 	u32 pps_hw_ts_idx;
 	u32 pps_genf_idx;
+	struct regmap *gtc;
+	u32 gtc_push_hw_idx;
+	u64 gtc_push_ts;
+	u64 gtc_push_cycles;
+	u32 gtc_push_seq;
+	wait_queue_head_t gtc_push_wq;
+	struct mutex gtc_push_lock; /* serialises crosststamp requests */
 	/* context save/restore */
 	u64 sr_cpts_ns;
 	u64 sr_ktime_ns;
@@ -290,6 +308,18 @@ static bool am65_cpts_fifo_pop_event(struct am65_cpts *cpts,
 	return true;
 }
 
+static void am65_cpts_gtc_push_event(struct am65_cpts *cpts,
+				     struct am65_cpts_event *event)
+{
+	struct system_time_snapshot snap;
+
+	ktime_get_snapshot_id(CLOCK_REALTIME, &snap);
+	cpts->gtc_push_ts = event->timestamp;
+	cpts->gtc_push_cycles = snap.cycles;
+	WRITE_ONCE(cpts->gtc_push_seq, cpts->gtc_push_seq + 1);
+	wake_up(&cpts->gtc_push_wq);
+}
+
 static int __am65_cpts_fifo_read(struct am65_cpts *cpts)
 {
 	struct ptp_clock_event pevent;
@@ -345,6 +375,11 @@ static int __am65_cpts_fifo_read(struct am65_cpts *cpts)
 			break;
 		case AM65_CPTS_EV_HW:
 			pevent.index = am65_cpts_event_get_port(event) - 1;
+			if (cpts->gtc &&
+			    pevent.index == cpts->gtc_push_hw_idx) {
+				am65_cpts_gtc_push_event(cpts, event);
+				break;
+			}
 			pevent.timestamp = event->timestamp;
 			if (cpts->pps_enabled && pevent.index == cpts->pps_hw_ts_idx) {
 				pevent.type = PTP_CLOCK_PPSUSR;
@@ -620,6 +655,9 @@ static int am65_cpts_extts_enable(struct am65_cpts *cpts, u32 index, int on)
 	if (cpts->pps_present && index == cpts->pps_hw_ts_idx)
 		return -EINVAL;
 
+	if (cpts->gtc && index == cpts->gtc_push_hw_idx)
+		return -EINVAL;
+
 	if (((cpts->hw_ts_enable & BIT(index)) >> index) == on)
 		return 0;
 
@@ -795,6 +833,111 @@ static int am65_cpts_ptp_enable(struct ptp_clock_info *ptp,
 	}
 
 	return -EOPNOTSUPP;
+}
+
+struct am65_cpts_gtc_push {
+	u64 ts;
+	u64 cycles;
+};
+
+/* the last rising edge of the exported bit at or before cycles */
+static u64 am65_cpts_gtc_push_edge(u64 cycles)
+{
+	u64 half = AM65_CPTS_GTC_PUSH_PERIOD / 2;
+
+	return round_down(cycles - half, AM65_CPTS_GTC_PUSH_PERIOD) + half;
+}
+
+static int am65_cpts_gtc_push_read(ktime_t *device,
+				   struct system_counterval_t *system,
+				   void *ctx)
+{
+	struct am65_cpts_gtc_push *push = ctx;
+
+	*device = ns_to_ktime(push->ts);
+	system->cycles = push->cycles;
+	system->cs_id = CSID_ARM_ARCH_COUNTER;
+	system->use_nsecs = false;
+
+	return 0;
+}
+
+static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
+					struct system_device_crosststamp *cts)
+{
+	struct am65_cpts *cpts = container_of(ptp, struct am65_cpts, ptp_info);
+	unsigned long tmo = msecs_to_jiffies(AM65_CPTS_GTC_PUSH_TIMEOUT);
+	struct system_time_snapshot history;
+	struct am65_cpts_gtc_push push;
+	unsigned long flags;
+	u64 edge, expect;
+	u32 seq, val;
+	int i, ret;
+
+	mutex_lock(&cpts->gtc_push_lock);
+
+	ret = regmap_update_bits(cpts->gtc, AM65_CPTS_GTC_PUSHEVT,
+				 AM65_CPTS_GTC_PUSHEVT_EXPBIT_SEL,
+				 FIELD_PREP(AM65_CPTS_GTC_PUSHEVT_EXPBIT_SEL,
+					    AM65_CPTS_GTC_PUSH_BIT));
+	if (ret)
+		goto out;
+	/* flush the posted write before the input is enabled */
+	ret = regmap_read(cpts->gtc, AM65_CPTS_GTC_PUSHEVT, &val);
+	if (ret)
+		goto out;
+
+	for (i = 0; i < AM65_CPTS_GTC_PUSH_TRIES; i++) {
+		spin_lock_irqsave(&cpts->lock, flags);
+		__am65_cpts_fifo_read(cpts);
+		seq = cpts->gtc_push_seq;
+		spin_unlock_irqrestore(&cpts->lock, flags);
+
+		ktime_get_snapshot_id(cts->clock_id, &history);
+		if (!history.valid || history.cs_id != CSID_ARM_ARCH_COUNTER) {
+			ret = -ENODEV;
+			goto out;
+		}
+
+		mutex_lock(&cpts->ptp_clk_lock);
+		am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 1);
+		mutex_unlock(&cpts->ptp_clk_lock);
+		ret = wait_event_timeout(cpts->gtc_push_wq,
+					 READ_ONCE(cpts->gtc_push_seq) != seq,
+					 tmo);
+		mutex_lock(&cpts->ptp_clk_lock);
+		am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 0);
+		mutex_unlock(&cpts->ptp_clk_lock);
+		if (!ret) {
+			ret = -ETIMEDOUT;
+			goto out;
+		}
+
+		spin_lock_irqsave(&cpts->lock, flags);
+		push.ts = cpts->gtc_push_ts;
+		edge = am65_cpts_gtc_push_edge(cpts->gtc_push_cycles);
+		spin_unlock_irqrestore(&cpts->lock, flags);
+
+		/* the first edge after the snapshot */
+		expect = am65_cpts_gtc_push_edge(history.cycles) +
+			 AM65_CPTS_GTC_PUSH_PERIOD;
+		if (edge == expect)
+			break;
+
+		dev_dbg(cpts->dev, "%s: edge %llu, expected %llu\n",
+			__func__, edge, expect);
+	}
+	if (i == AM65_CPTS_GTC_PUSH_TRIES) {
+		ret = -EAGAIN;
+		goto out;
+	}
+
+	push.cycles = edge;
+	ret = get_device_system_crosststamp(am65_cpts_gtc_push_read, &push,
+					    &history, cts);
+out:
+	mutex_unlock(&cpts->gtc_push_lock);
+	return ret;
 }
 
 static long am65_cpts_ts_work(struct ptp_clock_info *ptp);
@@ -1135,6 +1278,7 @@ mux_fail:
 
 static int am65_cpts_of_parse(struct am65_cpts *cpts, struct device_node *node)
 {
+	struct regmap *gtc;
 	u32 prop[2];
 
 	if (!of_property_read_u32(node, "ti,cpts-ext-ts-inputs", &prop[0]))
@@ -1157,6 +1301,24 @@ static int am65_cpts_of_parse(struct am65_cpts *cpts, struct device_node *node)
 		if (cpts->pps_present) {
 			cpts->pps_hw_ts_idx = prop[0];
 			cpts->pps_genf_idx = prop[1];
+		}
+	}
+
+	if (of_property_present(node, "ti,gtc-push")) {
+		gtc = syscon_regmap_lookup_by_phandle_args(node, "ti,gtc-push",
+							   1, &prop[0]);
+		if (IS_ERR(gtc))
+			return dev_err_probe(cpts->dev, PTR_ERR(gtc),
+					     "Failed to get GTC syscon\n");
+
+		if (prop[0] > 7 ||
+		    (cpts->pps_present && prop[0] == cpts->pps_hw_ts_idx)) {
+			dev_err(cpts->dev,
+				"invalid GTC push HWx_TS_PUSH index: %u\n",
+				prop[0]);
+		} else {
+			cpts->gtc = gtc;
+			cpts->gtc_push_hw_idx = prop[0];
 		}
 	}
 
@@ -1196,11 +1358,13 @@ struct am65_cpts *am65_cpts_create(struct device *dev, void __iomem *regs,
 		return ERR_PTR(ret);
 
 	mutex_init(&cpts->ptp_clk_lock);
+	mutex_init(&cpts->gtc_push_lock);
 	INIT_LIST_HEAD(&cpts->events_tx);
 	INIT_LIST_HEAD(&cpts->events_rx);
 	INIT_LIST_HEAD(&cpts->pool);
 	spin_lock_init(&cpts->lock);
 	skb_queue_head_init(&cpts->txq);
+	init_waitqueue_head(&cpts->gtc_push_wq);
 
 	for (i = 0; i < AM65_CPTS_MAX_EVENTS; i++)
 		list_add(&cpts->pool_data[i].list, &cpts->pool);
@@ -1229,6 +1393,8 @@ struct am65_cpts *am65_cpts_create(struct device *dev, void __iomem *regs,
 		cpts->ptp_info.n_per_out = cpts->genf_num;
 	if (cpts->pps_present)
 		cpts->ptp_info.pps = 1;
+	if (cpts->gtc)
+		cpts->ptp_info.getcrosststamp = am65_cpts_ptp_getcrosststamp;
 
 	am65_cpts_set_add_val(cpts);
 
