@@ -4,12 +4,12 @@ This branch (`mdio-timestamp/work`) holds the net change for the series as ordin
 we go. This file says how to split that change into patches, and holds the text that goes into the
 email. It is not part of any patch.
 
-Base: net-next `98c2ad4f5d8` (merged into this branch). Open items: tracking page
+Base: net-next `4dd16e31135` (merged into this branch). Open items: tracking page
 https://claude.ai/artifact/QLFHJhSmeextZBi7rAAUBo
 
 ## Cover letter
 
-Subject (git format-patch adds `[PATCH net-next v2 0/6]`):
+Subject (git format-patch adds `[PATCH net-next v3 0/6]`):
 
 ```
 net: mdio: add timestamped MDIO writes for PHY gettimex64
@@ -113,6 +113,13 @@ PHC synchronized by PTP to an external grandmaster, and the system clock
 synchronized from it, the system clock and the PHY's PHC read with
 PTP_SYS_OFFSET_EXTENDED agree to within about 0.15 µs.
 
+Changes in v3:
+- Rebased on net-next after the merge window
+- bcm-phy-ptp (4/6): the capture delay is measured from completion of
+  the write, as the mdio core defines it (Sashiko)
+- Assisted-by trailers dropped; tool use described above
+- v2: https://lore.kernel.org/netdev/20261018100257.566267-1-jjc@jclark.com/
+
 Changes in v2:
 - Improved measurement method (described in 4/6), which measures the
   synchronization error more precisely
@@ -204,7 +211,6 @@ adjust_historical_crosststamp() does. For an AUX clock this is the AUX
 clock's own timekeeper.
 
 Signed-off-by: James Clark <jjc@jclark.com>
-Assisted-by: LLM
 ```
 
 Notes for 1/6, after the `---` line (in the email, not the commit message):
@@ -231,7 +237,6 @@ completes, so it can shift the timestamps to bound the completion of
 the write.
 
 Signed-off-by: James Clark <jjc@jclark.com>
-Assisted-by: LLM
 ```
 
 Notes for 2/6, after the `---` line (in the email, not the commit message):
@@ -277,7 +282,6 @@ bits in a clause 22 frame and in its preamble. A bus driver can use
 them with the MDC period to work out when a write completes.
 
 Signed-off-by: James Clark <jjc@jclark.com>
-Assisted-by: LLM
 ```
 
 Notes for 3/6, after the `---` line (in the email, not the commit message):
@@ -316,10 +320,11 @@ __phy_write_sts() to obtain tighter system timestamp bounds in
 gettimex64 by timestamping completion of the write that triggers
 capture of the PHC time.
 
-The PHY captures its time a short delay after the last MDC edge of the
-write. This delay is not documented. The correctness of gettimex64
-requires that the event delay passed to __phy_write_sts() is an upper
-bound on the actual delay.
+The PHY captures its time a short delay after completion of the write,
+the rising MDC edge that clocks its last data bit. This delay is not
+documented. The correctness of gettimex64 requires that the event
+delay passed to __phy_write_sts() is an upper bound on the actual
+delay.
 
 The upper bound BCM_FRAMESYNC_CAPTURE_NS was established by measurements
 performed on a Raspberry Pi CM4. The same PPS signal was wired both to
@@ -355,12 +360,15 @@ This patch does not try to fix the error handling in the existing
 framesync code, which ignores MDIO write errors.
 
 Signed-off-by: James Clark <jjc@jclark.com>
-Assisted-by: LLM
 ```
 
 Notes for 4/6, after the `---` line (in the email, not the commit message):
 
 ```
+Changes in v3:
+- Say that the capture delay is measured from completion of the write,
+  the rising MDC edge that clocks its last data bit (Sashiko)
+
 Changes in v2:
 - Take into account the PHY's capture delay, with a bound of 350 ns
   found by measurement
@@ -415,7 +423,6 @@ adjusts to the new rate; handling this is outside the scope of this
 patch.
 
 Signed-off-by: James Clark <jjc@jclark.com>
-Assisted-by: LLM
 ```
 
 Notes for 5/6, after the `---` line (in the email, not the commit message):
@@ -485,7 +492,6 @@ need to enable it. A deferral of the clock lookup is passed on, as for
 any clock, so the MDIO bus waits for the clock's provider.
 
 Signed-off-by: James Clark <jjc@jclark.com>
-Assisted-by: LLM
 ```
 
 Notes for 6/6, after the `---` line (in the email, not the commit message):

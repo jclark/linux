@@ -161,8 +161,8 @@ struct bcm_ptp_capture {
 #define BCM_MAX_PULSE_8NS	((1U << 9) - 1)
 #define BCM_MAX_PERIOD_8NS	((1U << 30) - 1)
 
-/* Allowed for the PHY to capture its time after the last MDC edge of
- * the framesync write.
+/* Allowed for the PHY to capture its time after the rising MDC edge
+ * that clocks the last data bit of the framesync write.
  */
 #define BCM_FRAMESYNC_CAPTURE_NS	350
 
