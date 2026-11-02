@@ -299,10 +299,13 @@ static int usb_probe_device(struct device *dev)
 		error = -EPROBE_DEFER;
 	}
 	if (error)
-		goto err_autosuspend;
+		goto err_generic_disconnect;
 
 	return 0;
 
+err_generic_disconnect:
+	if (udriver->generic_subclass)
+		usb_generic_driver_disconnect(udev);
 err_autosuspend:
 	if (!udriver->supports_autosuspend)
 		usb_autosuspend_device(udev);
