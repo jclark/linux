@@ -266,7 +266,7 @@ static int usb_probe_device(struct device *dev)
 	if (udriver->generic_subclass)
 		error = usb_generic_driver_probe(udev);
 	if (error)
-		return error;
+		goto err_autosuspend;
 
 	/* Probe the USB device with the driver in hand, but only
 	 * defer to a generic driver in case the current USB
@@ -296,8 +296,16 @@ static int usb_probe_device(struct device *dev)
 	if (error == -ENODEV && udriver != &usb_generic_driver &&
 	    (udriver->id_table || udriver->match)) {
 		udev->use_generic_driver = 1;
-		return -EPROBE_DEFER;
+		error = -EPROBE_DEFER;
 	}
+	if (error)
+		goto err_autosuspend;
+
+	return 0;
+
+err_autosuspend:
+	if (!udriver->supports_autosuspend)
+		usb_autosuspend_device(udev);
 	return error;
 }
 
