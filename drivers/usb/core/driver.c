@@ -295,6 +295,8 @@ static int usb_probe_device(struct device *dev)
 		error = -EINVAL;
 	if (error == -ENODEV && udriver != &usb_generic_driver &&
 	    (udriver->id_table || udriver->match)) {
+		if (udriver->generic_subclass)
+			usb_generic_driver_disconnect(udev);
 		if (!udriver->supports_autosuspend)
 			usb_autosuspend_device(udev);
 		udev->use_generic_driver = 1;
