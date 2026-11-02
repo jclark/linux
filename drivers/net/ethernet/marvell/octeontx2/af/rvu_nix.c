@@ -1244,13 +1244,13 @@ static int rvu_nix_blk_aq_enq_inst(struct rvu *rvu, struct nix_hw *nix_hw,
 			__assign_bit(req->qidx, pfvf->rq_bmap, ena);
 		}
 		if (req->ctype == NIX_AQ_CTYPE_SQ) {
-			ena = (req->rq.ena & req->sq_mask.ena) |
+			ena = (req->sq.ena & req->sq_mask.ena) |
 				(test_bit(req->qidx, pfvf->sq_bmap) &
 				~req->sq_mask.ena);
 			__assign_bit(req->qidx, pfvf->sq_bmap, ena);
 		}
 		if (req->ctype == NIX_AQ_CTYPE_CQ) {
-			ena = (req->rq.ena & req->cq_mask.ena) |
+			ena = (req->cq.ena & req->cq_mask.ena) |
 				(test_bit(req->qidx, pfvf->cq_bmap) &
 				~req->cq_mask.ena);
 			__assign_bit(req->qidx, pfvf->cq_bmap, ena);
@@ -4111,9 +4111,12 @@ static int set_flowkey_fields(struct nix_rx_flowkey_alg *alg, u32 flow_cfg)
 		case NIX_FLOW_KEY_TYPE_INNR_IPV4:
 			field->lid = NPC_LID_LC;
 			field->ltype_match = NPC_LT_LC_IP;
+			field->ltype_mask = NPC_LT_LC_IP_MATCH_MSK;
+
 			if (key_type == NIX_FLOW_KEY_TYPE_INNR_IPV4) {
 				field->lid = NPC_LID_LG;
 				field->ltype_match = NPC_LT_LG_TU_IP;
+				field->ltype_mask = 0xF;
 			}
 			field->hdr_offset = 12; /* SIP offset */
 			field->bytesm1 = 7; /* SIP + DIP, 8 bytes */
@@ -4132,16 +4135,18 @@ static int set_flowkey_fields(struct nix_rx_flowkey_alg *alg, u32 flow_cfg)
 					field->bytesm1 = 3; /* DIP, 4 bytes */
 				}
 			}
-			field->ltype_mask = NPC_LT_LC_IP_MATCH_MSK;
 			keyoff_marker = false;
 			break;
 		case NIX_FLOW_KEY_TYPE_IPV6:
 		case NIX_FLOW_KEY_TYPE_INNR_IPV6:
 			field->lid = NPC_LID_LC;
 			field->ltype_match = NPC_LT_LC_IP6;
+			field->ltype_mask = NPC_LT_LC_IP6_MATCH_MSK;
+
 			if (key_type == NIX_FLOW_KEY_TYPE_INNR_IPV6) {
 				field->lid = NPC_LID_LG;
 				field->ltype_match = NPC_LT_LG_TU_IP6;
+				field->ltype_mask = 0xF;
 			}
 			field->hdr_offset = 8; /* SIP offset */
 			field->bytesm1 = 31; /* SIP + DIP, 32 bytes */
@@ -4161,7 +4166,6 @@ static int set_flowkey_fields(struct nix_rx_flowkey_alg *alg, u32 flow_cfg)
 					field->bytesm1 = 15; /* DIP,16 bytes */
 				}
 			}
-			field->ltype_mask = NPC_LT_LC_IP6_MATCH_MSK;
 			break;
 		case NIX_FLOW_KEY_TYPE_TCP:
 		case NIX_FLOW_KEY_TYPE_UDP:

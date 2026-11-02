@@ -248,7 +248,7 @@ neigh/default/unres_qlen - INTEGER
 
 neigh/default/interval_probe_time_ms - INTEGER
 	The probe interval for neighbor entries with NTF_MANAGED flag,
-	the min value is 1, and the max value is 86400000 (1 day).
+	the min value is 1000 (1s), and the max value is 86400000 (1 day).
 
 	Default: 5000
 
@@ -1127,6 +1127,8 @@ tcp_tso_rtt_log - INTEGER
 	TSO packets, reducing their cpu costs.
 
 	If you want to use the old autosizing, set this sysctl to 0.
+
+	Possible values are [0, 31], inclusive.
 
 	Default: 9  (2^9 = 512 usec)
 
@@ -3825,5 +3827,6 @@ l3mdev_accept - BOOLEAN
 max_dgram_qlen - INTEGER
 	The maximum length of dgram socket receive queue
 
-	Default: 10
+	Possible values: 0 - INT_MAX
 
+	Default: 10

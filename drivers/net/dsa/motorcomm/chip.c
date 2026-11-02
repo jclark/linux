@@ -679,8 +679,8 @@ yt921x_fdb_flush_port(struct yt921x_priv *priv, int port, bool flush_static)
 }
 
 static int
-yt921x_fdb_add_index_in12(struct yt921x_priv *priv, u16 index, u16 ctrl1,
-			  u16 ctrl2)
+yt921x_fdb_add_index_in12(struct yt921x_priv *priv, u16 index, u32 ctrl1,
+			  u32 ctrl2)
 {
 	u32 ctrl;
 	u32 val;
@@ -2403,12 +2403,6 @@ static int yt921x_chip_setup(struct yt921x_priv *priv)
 	if (res)
 		return res;
 #endif
-
-	/* Clear MIB */
-	ctrl = YT921X_MIB_CTRL_CLEAN | YT921X_MIB_CTRL_ALL_PORT;
-	res = yt921x_reg_write(priv, YT921X_MIB_CTRL, ctrl);
-	if (res)
-		return res;
 
 	/* Miscellaneous */
 	res = yt921x_reg_set_bits(priv, YT921X_SENSOR, YT921X_SENSOR_TEMP);
