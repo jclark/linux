@@ -113,12 +113,16 @@ PHC synchronized by PTP to an external grandmaster, and the system clock
 synchronized from it, the system clock and the PHY's PHC read with
 PTP_SYS_OFFSET_EXTENDED agree to within about 0.15 µs.
 
+A coding agent wrote the initial code, which has been revised numerous
+times on the basis of comments on earlier versions, my feedback, and
+local Sashiko reviews.
+
 Changes in v3:
 - Rebased on net-next after the merge window
 - bcm-phy-ptp (4/6): the capture delay is measured from completion of
   the write, as the mdio core defines it (Sashiko)
 - UniMAC (6/6): the reference rate read again at resume for a
-  standalone UniMAC (Sashiko)
+  standalone UniMAC
 - Assisted-by trailers dropped; tool use described above
 - v2: https://lore.kernel.org/netdev/20261018100257.566267-1-jjc@jclark.com/
 
@@ -511,7 +515,7 @@ Notes for 6/6, after the `---` line (in the email, not the commit message):
 ```
 Changes in v3:
 - Read the reference rate again at resume for a standalone UniMAC, and
-  say that other changes of the rate are not tracked (Sashiko)
+  say that other changes of the rate are not tracked
 
 Changes in v2:
 - Take the reference rate from a clock on the mdio node, and offer
