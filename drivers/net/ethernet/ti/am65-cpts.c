@@ -88,8 +88,12 @@ struct am65_cpts_regs {
 
 #define AM65_CPTS_CONTROL_TX_GENF_CLR_EN	BIT(17)
 
-#define AM65_CPTS_CONTROL_TS_SYNC_SEL_MASK	(0xF)
+#define AM65_CPTS_CONTROL_TS_SYNC_SEL_MASK	GENMASK(31, 28)
 #define AM65_CPTS_CONTROL_TS_SYNC_SEL_SHIFT	(28)
+
+/* TS_SYNC_SEL values 1 to 15 select counter bits 17 to 31 */
+#define AM65_CPTS_TS_SYNC_MIN_BIT		17
+#define AM65_CPTS_TS_SYNC_MAX_BIT		31
 
 /* RFTCLK_SEL_REG */
 #define AM65_CPTS_RFTCLK_SEL_MASK		(0x1F)
@@ -752,11 +756,104 @@ static void am65_cpts_perout_enable_hw(struct am65_cpts *cpts,
 	}
 }
 
+static void am65_cpts_ts_sync_enable_hw(struct am65_cpts *cpts, u32 sel)
+{
+	u32 v, cur;
+
+	v = am65_cpts_read32(cpts, control);
+	cur = (v & AM65_CPTS_CONTROL_TS_SYNC_SEL_MASK) >>
+	      AM65_CPTS_CONTROL_TS_SYNC_SEL_SHIFT;
+	if (cur == sel)
+		return;
+
+	v &= ~AM65_CPTS_CONTROL_TS_SYNC_SEL_MASK;
+	/*
+	 * TS_SYNC_SEL must be set to 0 before it is changed to another bit;
+	 * read back so that the 0 has reached the CPTS first.
+	 */
+	if (cur && sel) {
+		am65_cpts_write32(cpts, v, control);
+		am65_cpts_read32(cpts, control);
+	}
+	v |= sel << AM65_CPTS_CONTROL_TS_SYNC_SEL_SHIFT;
+	am65_cpts_write32(cpts, v, control);
+}
+
+/*
+ * The TS_SYNC output is counter bit n, n = 17 to 31, two refclk periods
+ * late: a square wave of period 2^(n + 1) ns with rising edges at
+ * k * 2^(n + 1) + 2^n. It cannot be started at a given time, so a request
+ * gives either that phase or a start time of 0.
+ */
+static int am65_cpts_ts_sync_enable(struct am65_cpts *cpts,
+				    struct ptp_perout_request *req, int on)
+{
+	u64 period, phase, on_ns;
+	struct timespec64 ts;
+	u32 sel = 0;
+	int bit;
+
+	if (on) {
+		ts.tv_sec = req->period.sec;
+		ts.tv_nsec = req->period.nsec;
+		period = timespec64_to_ns(&ts);
+		if (period < BIT_ULL(AM65_CPTS_TS_SYNC_MIN_BIT + 1) ||
+		    period > BIT_ULL(AM65_CPTS_TS_SYNC_MAX_BIT + 1) ||
+		    period & (period - 1)) {
+			dev_err(cpts->dev, "TS_SYNC: period must be a power of 2 ns from 2^%d to 2^%d\n",
+				AM65_CPTS_TS_SYNC_MIN_BIT + 1,
+				AM65_CPTS_TS_SYNC_MAX_BIT + 1);
+			return -EINVAL;
+		}
+		bit = ilog2(period) - 1;
+
+		if (req->flags & PTP_PEROUT_PHASE) {
+			ts.tv_sec = req->phase.sec;
+			ts.tv_nsec = req->phase.nsec;
+			phase = timespec64_to_ns(&ts);
+			if (phase != BIT_ULL(bit)) {
+				dev_err(cpts->dev, "TS_SYNC: phase must be 2^%d ns\n",
+					bit);
+				return -EINVAL;
+			}
+		} else if (req->start.sec || req->start.nsec) {
+			dev_err(cpts->dev, "TS_SYNC: start time is not configurable, must be 0\n");
+			return -EINVAL;
+		}
+
+		if (req->flags & PTP_PEROUT_DUTY_CYCLE) {
+			ts.tv_sec = req->on.sec;
+			ts.tv_nsec = req->on.nsec;
+			on_ns = timespec64_to_ns(&ts);
+			if (on_ns != BIT_ULL(bit)) {
+				dev_err(cpts->dev, "TS_SYNC: on time must be half the period\n");
+				return -EINVAL;
+			}
+		}
+
+		sel = bit - AM65_CPTS_TS_SYNC_MIN_BIT + 1;
+	}
+
+	mutex_lock(&cpts->ptp_clk_lock);
+	am65_cpts_ts_sync_enable_hw(cpts, sel);
+	mutex_unlock(&cpts->ptp_clk_lock);
+
+	dev_dbg(cpts->dev, "%s: TS_SYNC_SEL:%u\n", __func__, sel);
+
+	return 0;
+}
+
 static int am65_cpts_perout_enable(struct am65_cpts *cpts,
 				   struct ptp_perout_request *req, int on)
 {
 	if (req->index >= cpts->ptp_info.n_per_out)
 		return -ENXIO;
+
+	if (req->index == cpts->genf_num)
+		return am65_cpts_ts_sync_enable(cpts, req, on);
+
+	if (req->flags)
+		return -EOPNOTSUPP;
 
 	if (cpts->pps_present && req->index == cpts->pps_genf_idx)
 		return -EINVAL;
@@ -946,6 +1043,7 @@ static struct ptp_clock_info am65_ptp_info = {
 	.owner		= THIS_MODULE,
 	.name		= "CTPS timer",
 	.supported_extts_flags = PTP_RISING_EDGE | PTP_STRICT_FLAGS,
+	.supported_perout_flags = PTP_PEROUT_DUTY_CYCLE | PTP_PEROUT_PHASE,
 	.adjfine	= am65_cpts_ptp_adjfine,
 	.adjtime	= am65_cpts_ptp_adjtime,
 	.gettimex64	= am65_cpts_ptp_gettimex,
@@ -1389,8 +1487,8 @@ struct am65_cpts *am65_cpts_create(struct device *dev, void __iomem *regs,
 
 	if (cpts->ext_ts_inputs)
 		cpts->ptp_info.n_ext_ts = cpts->ext_ts_inputs;
-	if (cpts->genf_num)
-		cpts->ptp_info.n_per_out = cpts->genf_num;
+	/* the GenF outputs, then TS_SYNC */
+	cpts->ptp_info.n_per_out = cpts->genf_num + 1;
 	if (cpts->pps_present)
 		cpts->ptp_info.pps = 1;
 	if (cpts->gtc)
