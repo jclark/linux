@@ -336,8 +336,8 @@ out:
 static bool unimac_mdio_init_sts(struct unimac_mdio_priv *priv,
 				 struct clk *ref_clk)
 {
-	/* The reference rate is read here and, for a standalone UniMAC,
-	 * again at resume. Other changes to it are not tracked.
+	/* The reference rate is read only here and, for a standalone
+	 * UniMAC, again at resume.
 	 */
 	priv->mdio_ref_rate = clk_get_rate(ref_clk);
 
