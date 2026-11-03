@@ -501,11 +501,15 @@ separately. It is marked critical there, so the UniMAC driver does not
 need to enable it. A deferral of the clock lookup is passed on, as for
 any clock, so the MDIO bus waits for the clock's provider.
 
-The reference rate is read at probe and, for a standalone UniMAC, again
-at resume, when unimac_mdio_clk_set() computes the divider from the
-same clock. If the rate changes at any other time, write_sts does not
-adjust to the new rate; handling this is outside the scope of this
-patch.
+For a standalone UniMAC, the reference rate is recorded at probe and at
+resume. This means that write_sts uses the same rate as the driver uses
+to set the MDC divider. If the rate changes at any other time, neither
+write_sts nor the rest of the driver adjusts to the new rate; handling
+this is outside the scope of this patch.
+
+When GENET creates the UniMAC device, the reference rate is recorded
+only at probe. On BCM2711 this is enough: the firmware sets the GISB
+clock's rate, and nothing in Linux changes it.
 
 Signed-off-by: James Clark <jjc@jclark.com>
 ```
@@ -515,7 +519,7 @@ Notes for 6/6, after the `---` line (in the email, not the commit message):
 ```
 Changes in v3:
 - Read the reference rate again at resume for a standalone UniMAC, and
-  say that other changes of the rate are not tracked
+  update the comment where it is read at probe
 
 Changes in v2:
 - Take the reference rate from a clock on the mdio node, and offer
