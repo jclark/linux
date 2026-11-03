@@ -178,7 +178,7 @@ static int unimac_mdio_sts_delays(struct unimac_mdio_priv *priv,
 				  u64 *pre_ns, u64 *post_ns)
 {
 	u32 cmd, config, divisor, bits, extra_bit = 0;
-	u64 ref_rate2 = 2ULL * priv->mdio_ref_rate;
+	u64 ref_rate2 = 2ULL * READ_ONCE(priv->mdio_ref_rate);
 	int ret;
 
 	/* The delays assume the controller is idle. */
@@ -336,7 +336,9 @@ out:
 static bool unimac_mdio_init_sts(struct unimac_mdio_priv *priv,
 				 struct clk *ref_clk)
 {
-	/* The reference rate is taken to be fixed, so read it once. */
+	/* The reference rate is read here and, for a standalone UniMAC,
+	 * again at resume. Other changes to it are not tracked.
+	 */
 	priv->mdio_ref_rate = clk_get_rate(ref_clk);
 
 	return priv->mdio_ref_rate != 0;
@@ -455,6 +457,14 @@ static void unimac_mdio_remove(struct platform_device *pdev)
 static int __maybe_unused unimac_mdio_resume(struct device *d)
 {
 	struct unimac_mdio_priv *priv = dev_get_drvdata(d);
+	unsigned long rate;
+
+	/* A standalone UniMAC's MDC reference is priv->clk. */
+	if (priv->mdio_ref_rate && !dev_get_platdata(d)) {
+		rate = clk_get_rate(priv->clk);
+		if (rate)
+			WRITE_ONCE(priv->mdio_ref_rate, rate);
+	}
 
 	return unimac_mdio_clk_set(priv);
 }

@@ -117,6 +117,8 @@ Changes in v3:
 - Rebased on net-next after the merge window
 - bcm-phy-ptp (4/6): the capture delay is measured from completion of
   the write, as the mdio core defines it (Sashiko)
+- UniMAC (6/6): the reference rate read again at resume for a
+  standalone UniMAC (Sashiko)
 - Assisted-by trailers dropped; tool use described above
 - v2: https://lore.kernel.org/netdev/20261018100257.566267-1-jjc@jclark.com/
 
@@ -428,6 +430,10 @@ Signed-off-by: James Clark <jjc@jclark.com>
 Notes for 5/6, after the `---` line (in the email, not the commit message):
 
 ```
+Changes in v3:
+- Pass &bp->info to macb_is_gem(), which takes struct macb_info in
+  net-next
+
 Changes in v2:
 - Bound the edge by 63.5 and 64.5 MDC periods by default, and use
   exactly 63.5 with MACB_CAPS_MDC_WRITE_SYNC, which RP1 sets
@@ -491,12 +497,22 @@ separately. It is marked critical there, so the UniMAC driver does not
 need to enable it. A deferral of the clock lookup is passed on, as for
 any clock, so the MDIO bus waits for the clock's provider.
 
+The reference rate is read at probe and, for a standalone UniMAC, again
+at resume, when unimac_mdio_clk_set() computes the divider from the
+same clock. If the rate changes at any other time, write_sts does not
+adjust to the new rate; handling this is outside the scope of this
+patch.
+
 Signed-off-by: James Clark <jjc@jclark.com>
 ```
 
 Notes for 6/6, after the `---` line (in the email, not the commit message):
 
 ```
+Changes in v3:
+- Read the reference rate again at resume for a standalone UniMAC, and
+  say that other changes of the rate are not tracked (Sashiko)
+
 Changes in v2:
 - Take the reference rate from a clock on the mdio node, and offer
   write_sts only when there is one, instead of hardcoding 200 MHz for

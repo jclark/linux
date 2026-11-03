@@ -463,7 +463,7 @@ static u32 macb_mdc_divisor(struct macb *bp, u32 config)
 		[MACB_CLK_DIV64] = 64,
 	};
 
-	if (macb_is_gem(bp))
+	if (macb_is_gem(&bp->info))
 		return gem_divisors[GEM_BFEXT(CLK, config)];
 	return macb_divisors[MACB_BFEXT(CLK, config)];
 }
