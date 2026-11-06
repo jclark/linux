@@ -162,7 +162,7 @@ struct am65_cpts_event {
 #define AM65_CPTS_GTC_PUSH_IDLE_BIT	63 /* always 0, so no edges */
 #define AM65_CPTS_GTC_PUSH_LEAD		2000 /* ticks: 10 us at 200 MHz */
 #define AM65_CPTS_GTC_PUSH_BIT		12 /* each half period is 4096 ticks */
-#define AM65_CPTS_GTC_PUSH_SPIN		64 /* periods of the bit */
+#define AM65_CPTS_GTC_PUSH_READS	4096 /* reads waiting for a window */
 #define AM65_CPTS_GTC_PUSH_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_GTC_PUSH_TRIES	3
 #define AM65_CPTS_GTC_PUSH_DRAIN_PASSES	8
@@ -889,30 +889,27 @@ static int am65_cpts_gtc_push_select(struct am65_cpts *cpts, u32 bit)
  * *snap is the change. Each half period of the bit is longer than lead, so
  * this takes at most one period of the bit plus lead, unless the task is
  * preempted. Half the bit's period should exceed lead by much more than the
- * time one counter read takes, or the window can be missed.
+ * time one counter read takes, or the window can be missed. The limit is on
+ * reads, not time, so that a preemption can't make the request fail.
  */
 static int am65_cpts_gtc_push_window(clockid_t clock_id,
 				     struct system_time_snapshot *snap,
 				     u32 bit, u64 lead, u64 *edge)
 {
-	u64 start = 0;
+	int i;
 
-	for (;;) {
+	for (i = 0; i < AM65_CPTS_GTC_PUSH_READS; i++) {
 		ktime_get_snapshot_id(clock_id, snap);
 		if (!snap->valid || snap->cs_id != CSID_ARM_ARCH_COUNTER)
 			return -ENODEV;
-		if (!start)
-			start = snap->cycles;
 		if (!(snap->cycles & BIT_ULL(bit))) {
 			*edge = (snap->cycles | (BIT_ULL(bit) - 1)) + 1;
 			if (*edge - snap->cycles >= lead)
 				return 0;
 		}
-		if (snap->cycles - start >
-		    AM65_CPTS_GTC_PUSH_SPIN * BIT_ULL(bit + 1))
-			return -ETIMEDOUT;
 		cpu_relax();
 	}
+	return -ETIMEDOUT;
 }
 
 static int am65_cpts_gtc_push_read(ktime_t *device,
