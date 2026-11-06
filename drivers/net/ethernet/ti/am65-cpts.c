@@ -165,7 +165,8 @@ struct am65_cpts_event {
 #define AM65_CPTS_MIN_PPM		0x400
 #define AM65_CPTS_GTC_PUSH_IDLE_BIT	63 /* always 0, so no edges */
 #define AM65_CPTS_GTC_PUSH_LEAD		2000 /* ticks: 10 us at 200 MHz */
-#define AM65_CPTS_GTC_PUSH_BIT		11 /* each half period is 2048 ticks */
+#define AM65_CPTS_GTC_PUSH_BIT		12 /* each half period is 4096 ticks */
+#define AM65_CPTS_GTC_PUSH_SPIN		64 /* periods of the bit */
 #define AM65_CPTS_GTC_PUSH_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_GTC_PUSH_TRIES	3
 #define AM65_CPTS_GTC_PUSH_DRAIN_PASSES	8
@@ -982,8 +983,10 @@ static int am65_cpts_gtc_push_select(struct am65_cpts *cpts, u32 bit)
  * Read the counter into *snap until counter bit "bit" is 0 and its next change
  * to 1 is at least lead ticks away, and return the counter value of that
  * change in *edge. The bit stays 0 until then, so its first rising edge after
- * *snap is the change. Each half period of the bit is longer than lead, so this
- * takes at most one period of the bit plus lead.
+ * *snap is the change. Each half period of the bit is longer than lead, so
+ * this takes at most one period of the bit plus lead, unless the task is
+ * preempted. Half the bit's period should exceed lead by much more than the
+ * time one counter read takes, or the window can be missed.
  */
 static int am65_cpts_gtc_push_window(clockid_t clock_id,
 				     struct system_time_snapshot *snap,
@@ -1002,7 +1005,8 @@ static int am65_cpts_gtc_push_window(clockid_t clock_id,
 			if (*edge - snap->cycles >= lead)
 				return 0;
 		}
-		if (snap->cycles - start > 2 * BIT_ULL(bit + 1))
+		if (snap->cycles - start >
+		    AM65_CPTS_GTC_PUSH_SPIN * BIT_ULL(bit + 1))
 			return -ETIMEDOUT;
 		cpu_relax();
 	}
