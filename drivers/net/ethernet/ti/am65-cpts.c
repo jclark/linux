@@ -206,6 +206,7 @@ struct am65_cpts {
 	u32 gtc_push_hw_idx;
 	u64 gtc_push_ts;
 	bool gtc_push_armed;
+	int gtc_push_fixed; /* test: fixed bit (old method), or -1 to place the edge */
 	wait_queue_head_t gtc_push_wq;
 	struct mutex gtc_push_lock; /* serialises crosststamp requests */
 	/* context save/restore */
@@ -312,15 +313,40 @@ static bool am65_cpts_fifo_pop_event(struct am65_cpts *cpts,
 	return true;
 }
 
+/* TEST ONLY: method, bit, lead and counters, in /sys/module/am65_cpts/parameters/ */
+static int gtc_push_fixed_bit = -1;
+module_param(gtc_push_fixed_bit, int, 0644);
+MODULE_PARM_DESC(gtc_push_fixed_bit, "test: wait for edges of this bit (old method); -1: place the edge");
+static int gtc_push_place_bit = AM65_CPTS_GTC_PUSH_BIT;
+module_param(gtc_push_place_bit, int, 0644);
+MODULE_PARM_DESC(gtc_push_place_bit, "test: the bit a placed edge uses");
+static ulong gtc_push_lead = AM65_CPTS_GTC_PUSH_LEAD;
+module_param(gtc_push_lead, ulong, 0644);
+MODULE_PARM_DESC(gtc_push_lead, "test: minimum ticks from the counter read to a placed edge");
+static ulong gtc_push_events, gtc_push_requests, gtc_push_rejects;
+module_param(gtc_push_events, ulong, 0444);
+module_param(gtc_push_requests, ulong, 0444);
+module_param(gtc_push_rejects, ulong, 0444);
+
+/* first rising edge of counter bit b after cycles */
+static u64 am65_cpts_gtc_push_next(u64 cycles, int b)
+{
+	u64 period = BIT_ULL(b + 1), half = BIT_ULL(b);
+
+	return round_down(cycles - half, period) + half + period;
+}
+
 static void am65_cpts_gtc_push_event(struct am65_cpts *cpts,
 				     struct am65_cpts_event *event)
 {
+	gtc_push_events++;
 	/* keep the first event of a request; later edges are not used */
 	if (!cpts->gtc_push_armed)
 		return;
 	cpts->gtc_push_ts = event->timestamp;
 	WRITE_ONCE(cpts->gtc_push_armed, false);
 	/* no more edges */
+	if (cpts->gtc_push_fixed < 0)
 	regmap_update_bits(cpts->gtc, AM65_CPTS_GTC_PUSHEVT,
 			   AM65_CPTS_GTC_PUSHEVT_EXPBIT_SEL,
 			   FIELD_PREP(AM65_CPTS_GTC_PUSHEVT_EXPBIT_SEL,
@@ -1009,19 +1035,31 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 	struct system_time_snapshot history, after;
 	struct am65_cpts_gtc_push push;
 	unsigned long flags;
-	u64 edge = 0;
-	int err, i, ret;
+	u64 edge = 0, lead;
+	int err, i, ret, fixed, pbit;
 
 	mutex_lock(&cpts->gtc_push_lock);
+	fixed = READ_ONCE(gtc_push_fixed_bit);
+	if (fixed > 62)
+		fixed = -1;
+	pbit = clamp(READ_ONCE(gtc_push_place_bit), 0, 62);
+	lead = READ_ONCE(gtc_push_lead);
+	spin_lock_irqsave(&cpts->lock, flags);
+	cpts->gtc_push_fixed = fixed;
+	spin_unlock_irqrestore(&cpts->lock, flags);
+	gtc_push_requests++;
 
 	/* no edges while the input is enabled, until a bit is selected */
-	ret = am65_cpts_gtc_push_select(cpts, AM65_CPTS_GTC_PUSH_IDLE_BIT);
+	ret = am65_cpts_gtc_push_select(cpts, fixed >= 0 ? fixed :
+					AM65_CPTS_GTC_PUSH_IDLE_BIT);
 	if (ret)
 		goto out;
-	mutex_lock(&cpts->ptp_clk_lock);
-	am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 1);
-	am65_cpts_read32(cpts, control);
-	mutex_unlock(&cpts->ptp_clk_lock);
+	if (fixed < 0) {
+		mutex_lock(&cpts->ptp_clk_lock);
+		am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 1);
+		am65_cpts_read32(cpts, control);
+		mutex_unlock(&cpts->ptp_clk_lock);
+	}
 
 	for (i = 0; i < AM65_CPTS_GTC_PUSH_TRIES; i++) {
 		/* drop any old events, then accept the next push event */
@@ -1036,14 +1074,28 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 		 * after the second read, the bit was selected before the edge
 		 * and the first event is of the edge.
 		 */
-		ret = am65_cpts_gtc_push_window(cts->clock_id, &history,
-						AM65_CPTS_GTC_PUSH_BIT,
-						AM65_CPTS_GTC_PUSH_LEAD, &edge);
-		if (ret)
-			goto disable;
-		ret = am65_cpts_gtc_push_select(cpts, AM65_CPTS_GTC_PUSH_BIT);
-		if (ret)
-			goto disable;
+		if (fixed >= 0) {
+			/* the old method: bracket the enable */
+			ktime_get_snapshot_id(cts->clock_id, &history);
+			if (!history.valid ||
+			    history.cs_id != CSID_ARM_ARCH_COUNTER) {
+				ret = -ENODEV;
+				goto disable;
+			}
+			mutex_lock(&cpts->ptp_clk_lock);
+			am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 1);
+			am65_cpts_read32(cpts, control);
+			mutex_unlock(&cpts->ptp_clk_lock);
+			edge = am65_cpts_gtc_push_next(history.cycles, fixed);
+		} else {
+			ret = am65_cpts_gtc_push_window(cts->clock_id, &history,
+							pbit, lead, &edge);
+			if (ret)
+				goto disable;
+			ret = am65_cpts_gtc_push_select(cpts, pbit);
+			if (ret)
+				goto disable;
+		}
 		ktime_get_snapshot_id(cts->clock_id, &after);
 		if (!after.valid || after.cs_id != CSID_ARM_ARCH_COUNTER) {
 			ret = -ENODEV;
@@ -1051,6 +1103,7 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 		}
 
 		if (edge <= after.cycles) {
+			gtc_push_rejects++;
 			dev_dbg(cpts->dev, "%s: edge %llu before the bit was set\n",
 				__func__, edge);
 			ret = -EAGAIN;
@@ -1068,10 +1121,17 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 		 * the read-back there are no more edges, so no event of this
 		 * attempt reaches the FIFO after the next drain.
 		 */
-		err = am65_cpts_gtc_push_select(cpts,
-						AM65_CPTS_GTC_PUSH_IDLE_BIT);
-		if (err)
-			ret = err;
+		if (fixed >= 0) {
+			mutex_lock(&cpts->ptp_clk_lock);
+			am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 0);
+			am65_cpts_read32(cpts, control);
+			mutex_unlock(&cpts->ptp_clk_lock);
+		} else {
+			err = am65_cpts_gtc_push_select(cpts,
+							AM65_CPTS_GTC_PUSH_IDLE_BIT);
+			if (err)
+				ret = err;
+		}
 		if (ret != -EAGAIN)
 			break;
 	}
@@ -1091,7 +1151,8 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 	goto out;
 
 disable:
-	am65_cpts_gtc_push_select(cpts, AM65_CPTS_GTC_PUSH_IDLE_BIT);
+	if (fixed < 0)
+		am65_cpts_gtc_push_select(cpts, AM65_CPTS_GTC_PUSH_IDLE_BIT);
 	mutex_lock(&cpts->ptp_clk_lock);
 	am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 0);
 	mutex_unlock(&cpts->ptp_clk_lock);
