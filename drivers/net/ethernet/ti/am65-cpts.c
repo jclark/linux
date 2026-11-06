@@ -161,6 +161,7 @@ struct am65_cpts_event {
 #define AM65_CPTS_MIN_PPM		0x400
 #define AM65_CPTS_GTC_PUSH_IDLE_BIT	63 /* always 0, so no edges */
 #define AM65_CPTS_GTC_PUSH_LEAD		2000 /* ticks: 10 us at 200 MHz */
+#define AM65_CPTS_GTC_PUSH_BIT		11 /* each half period is 2048 ticks */
 #define AM65_CPTS_GTC_PUSH_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_GTC_PUSH_TRIES	3
 
@@ -860,24 +861,33 @@ static int am65_cpts_gtc_push_select(struct am65_cpts *cpts, u32 bit)
 }
 
 /*
- * Choose the lowest counter bit that is 0 at cycles and next changes to 1
- * at least lead ticks after cycles. The bit stays 0 until that change, so
- * its first rising edge after cycles is the change. Return the bit, and the
- * counter value of the change in *edge.
+ * Read the counter into *snap until counter bit "bit" is 0 and its next change
+ * to 1 is at least lead ticks away, and return the counter value of that
+ * change in *edge. The bit stays 0 until then, so its first rising edge after
+ * *snap is the change. Each half period of the bit is longer than lead, so this
+ * takes at most one period of the bit plus lead.
  */
-static int am65_cpts_gtc_push_place(u64 cycles, u64 lead, u64 *edge)
+static int am65_cpts_gtc_push_window(clockid_t clock_id,
+				     struct system_time_snapshot *snap,
+				     u32 bit, u64 lead, u64 *edge)
 {
-	int bit;
+	u64 start = 0;
 
-	for (bit = 0; bit < AM65_CPTS_GTC_PUSH_IDLE_BIT; bit++) {
-		u64 next = (cycles | (BIT_ULL(bit) - 1)) + 1;
-
-		if (!(cycles & BIT_ULL(bit)) && next - cycles >= lead) {
-			*edge = next;
-			return bit;
+	for (;;) {
+		ktime_get_snapshot_id(clock_id, snap);
+		if (!snap->valid || snap->cs_id != CSID_ARM_ARCH_COUNTER)
+			return -ENODEV;
+		if (!start)
+			start = snap->cycles;
+		if (!(snap->cycles & BIT_ULL(bit))) {
+			*edge = (snap->cycles | (BIT_ULL(bit) - 1)) + 1;
+			if (*edge - snap->cycles >= lead)
+				return 0;
 		}
+		if (snap->cycles - start > 2 * BIT_ULL(bit + 1))
+			return -ETIMEDOUT;
+		cpu_relax();
 	}
-	return -ERANGE;
 }
 
 static int am65_cpts_gtc_push_read(ktime_t *device,
@@ -903,7 +913,7 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 	struct am65_cpts_gtc_push push;
 	unsigned long flags;
 	u64 edge = 0;
-	int bit, err, i, ret;
+	int err, i, ret;
 
 	mutex_lock(&cpts->gtc_push_lock);
 
@@ -924,23 +934,17 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 		spin_unlock_irqrestore(&cpts->lock, flags);
 
 		/*
-		 * Read the counter, select a bit that next rises a little
-		 * later, and read the counter again. If the edge comes after
-		 * the second read, the bit was selected before the edge and
-		 * the first event is of the edge.
+		 * Wait until the bit is 0 with its next rise a little later,
+		 * select it, and read the counter again. If the edge comes
+		 * after the second read, the bit was selected before the edge
+		 * and the first event is of the edge.
 		 */
-		ktime_get_snapshot_id(cts->clock_id, &history);
-		if (!history.valid || history.cs_id != CSID_ARM_ARCH_COUNTER) {
-			ret = -ENODEV;
+		ret = am65_cpts_gtc_push_window(cts->clock_id, &history,
+						AM65_CPTS_GTC_PUSH_BIT,
+						AM65_CPTS_GTC_PUSH_LEAD, &edge);
+		if (ret)
 			goto disable;
-		}
-		bit = am65_cpts_gtc_push_place(history.cycles,
-					       AM65_CPTS_GTC_PUSH_LEAD, &edge);
-		if (bit < 0) {
-			ret = bit;
-			goto disable;
-		}
-		ret = am65_cpts_gtc_push_select(cpts, bit);
+		ret = am65_cpts_gtc_push_select(cpts, AM65_CPTS_GTC_PUSH_BIT);
 		if (ret)
 			goto disable;
 		ktime_get_snapshot_id(cts->clock_id, &after);
@@ -950,8 +954,8 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 		}
 
 		if (edge <= after.cycles) {
-			dev_dbg(cpts->dev, "%s: edge %llu before bit %d was set\n",
-				__func__, edge, bit);
+			dev_dbg(cpts->dev, "%s: edge %llu before the bit was set\n",
+				__func__, edge);
 			ret = -EAGAIN;
 		} else if (!wait_event_timeout(cpts->gtc_push_wq,
 					       !READ_ONCE(cpts->gtc_push_armed),
