@@ -164,9 +164,11 @@ struct am65_cpts_event {
 #define AM65_CPTS_SKB_TX_WORK_TIMEOUT	1 /* jiffies */
 #define AM65_CPTS_MIN_PPM		0x400
 #define AM65_CPTS_GTC_PUSH_IDLE_BIT	63 /* always 0, so no edges */
-#define AM65_CPTS_GTC_PUSH_LEAD		2000 /* ticks: 10 us at 200 MHz */
-#define AM65_CPTS_GTC_PUSH_BIT		12 /* each half period is 4096 ticks */
-#define AM65_CPTS_GTC_PUSH_READS	4096 /* reads waiting for a window */
+/* lead, in counter ticks (5 ns at 200 MHz): learned, within these limits */
+#define AM65_CPTS_GTC_PUSH_LEAD_INIT	2000
+#define AM65_CPTS_GTC_PUSH_LEAD_MIN	400
+#define AM65_CPTS_GTC_PUSH_LEAD_MAX	32768
+#define AM65_CPTS_GTC_PUSH_READS	16384 /* reads waiting for a window */
 #define AM65_CPTS_GTC_PUSH_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_GTC_PUSH_TRIES	3
 #define AM65_CPTS_GTC_PUSH_DRAIN_PASSES	8
@@ -208,6 +210,7 @@ struct am65_cpts {
 	u32 gtc_push_hw_idx;
 	u64 gtc_push_ts;
 	bool gtc_push_armed;
+	u64 gtc_push_lead; /* under gtc_push_lock */
 	wait_queue_head_t gtc_push_wq;
 	struct mutex gtc_push_lock; /* serialises crosststamp requests */
 	/* context save/restore */
@@ -1009,6 +1012,38 @@ static int am65_cpts_gtc_push_window(clockid_t clock_id,
 	return -ETIMEDOUT;
 }
 
+/*
+ * The lead is the time a request allows from the first counter read to the
+ * edge. It has to cover selecting the bit and the second read, which depends
+ * on the hardware and the load, so it is learned from what the requests take:
+ * after a rejected attempt it doubles; otherwise it rises to twice the time
+ * the attempt took from the first read to the second, or decays by 1/16.
+ */
+static void am65_cpts_gtc_push_learn(struct am65_cpts *cpts, u64 took,
+				     bool rejected)
+{
+	u64 lead = cpts->gtc_push_lead;
+
+	if (rejected)
+		lead = max(2 * lead, 2 * took);
+	else if (2 * took > lead)
+		lead = 2 * took;
+	else
+		lead -= lead / 16;
+	cpts->gtc_push_lead = clamp_t(u64, lead, AM65_CPTS_GTC_PUSH_LEAD_MIN,
+				      AM65_CPTS_GTC_PUSH_LEAD_MAX);
+}
+
+/*
+ * The lowest bit whose half period is at least twice the lead, so that each
+ * window, the part of a 0 half at least the lead before the rise, is at least
+ * as long as the lead.
+ */
+static u32 am65_cpts_gtc_push_bit(u64 lead)
+{
+	return fls64(2 * lead - 1);
+}
+
 static int am65_cpts_gtc_push_read(ktime_t *device,
 				   struct system_counterval_t *system,
 				   void *ctx)
@@ -1031,8 +1066,10 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 	struct system_time_snapshot history, after;
 	struct am65_cpts_gtc_push push;
 	unsigned long flags;
-	u64 edge = 0;
+	u64 edge = 0, lead;
 	int err, i, ret;
+	bool rejected;
+	u32 bit;
 
 	mutex_lock(&cpts->gtc_push_lock);
 
@@ -1060,12 +1097,13 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 		 * after the second read, the bit was selected before the edge
 		 * and the first event is of the edge.
 		 */
-		ret = am65_cpts_gtc_push_window(cts->clock_id, &history,
-						AM65_CPTS_GTC_PUSH_BIT,
-						AM65_CPTS_GTC_PUSH_LEAD, &edge);
+		lead = cpts->gtc_push_lead;
+		bit = am65_cpts_gtc_push_bit(lead);
+		ret = am65_cpts_gtc_push_window(cts->clock_id, &history, bit,
+						lead, &edge);
 		if (ret)
 			goto disable;
-		ret = am65_cpts_gtc_push_select(cpts, AM65_CPTS_GTC_PUSH_BIT);
+		ret = am65_cpts_gtc_push_select(cpts, bit);
 		if (ret)
 			goto disable;
 		ktime_get_snapshot_id(cts->clock_id, &after);
@@ -1074,7 +1112,10 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 			goto disable;
 		}
 
-		if (edge <= after.cycles) {
+		rejected = edge <= after.cycles;
+		am65_cpts_gtc_push_learn(cpts, after.cycles - history.cycles,
+					 rejected);
+		if (rejected) {
 			dev_dbg(cpts->dev, "%s: edge %llu before the bit was set\n",
 				__func__, edge);
 			ret = -EAGAIN;
@@ -1547,6 +1588,7 @@ struct am65_cpts *am65_cpts_create(struct device *dev, void __iomem *regs,
 
 	mutex_init(&cpts->ptp_clk_lock);
 	mutex_init(&cpts->gtc_push_lock);
+	cpts->gtc_push_lead = AM65_CPTS_GTC_PUSH_LEAD_INIT;
 	INIT_LIST_HEAD(&cpts->events_tx);
 	INIT_LIST_HEAD(&cpts->events_rx);
 	INIT_LIST_HEAD(&cpts->pool);
