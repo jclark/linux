@@ -201,6 +201,7 @@ struct am65_cpts {
 	struct regmap *gtc;
 	u32 gtc_push_hw_idx;
 	u64 gtc_push_ts;
+	u64 gtc_push_cycles; /* the counter when the event was read */
 	bool gtc_push_armed;
 	wait_queue_head_t gtc_push_wq;
 	struct mutex gtc_push_lock; /* serialises crosststamp requests */
@@ -311,10 +312,14 @@ static bool am65_cpts_fifo_pop_event(struct am65_cpts *cpts,
 static void am65_cpts_gtc_push_event(struct am65_cpts *cpts,
 				     struct am65_cpts_event *event)
 {
+	struct system_time_snapshot snap;
+
 	/* keep the first event of a request; later edges are not used */
 	if (!cpts->gtc_push_armed)
 		return;
+	ktime_get_snapshot_id(CLOCK_REALTIME, &snap);
 	cpts->gtc_push_ts = event->timestamp;
+	cpts->gtc_push_cycles = snap.cycles;
 	WRITE_ONCE(cpts->gtc_push_armed, false);
 	wake_up(&cpts->gtc_push_wq);
 }
@@ -890,7 +895,7 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 	struct system_time_snapshot history, after;
 	struct am65_cpts_gtc_push push;
 	unsigned long flags;
-	u64 edge;
+	u64 edge, popped;
 	u32 val;
 	int i, ret;
 
@@ -950,7 +955,24 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 			ret = -ETIMEDOUT;
 			goto disable;
 		} else {
-			ret = 0;
+			/*
+			 * The event handler read the counter when it took the
+			 * event from the FIFO. If that was a period or more
+			 * after the edge, the event may be of a later edge:
+			 * when the FIFO overruns, the CPTS loses events.
+			 */
+			spin_lock_irqsave(&cpts->lock, flags);
+			push.ts = cpts->gtc_push_ts;
+			popped = cpts->gtc_push_cycles;
+			spin_unlock_irqrestore(&cpts->lock, flags);
+			if ((s64)(popped - edge) >=
+			    (s64)AM65_CPTS_GTC_PUSH_PERIOD) {
+				dev_dbg(cpts->dev, "%s: event read at %llu, edge %llu\n",
+					__func__, popped, edge);
+				ret = -EAGAIN;
+			} else {
+				ret = 0;
+			}
 		}
 
 		/*
@@ -967,9 +989,6 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 	if (ret)
 		goto disarm;
 
-	spin_lock_irqsave(&cpts->lock, flags);
-	push.ts = cpts->gtc_push_ts;
-	spin_unlock_irqrestore(&cpts->lock, flags);
 	push.cycles = edge;
 	ret = get_device_system_crosststamp(am65_cpts_gtc_push_read, &push,
 					    &history, cts);
