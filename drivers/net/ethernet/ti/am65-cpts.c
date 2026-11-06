@@ -163,7 +163,7 @@ struct am65_cpts_event {
 #define AM65_CPTS_EVENT_RX_TX_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_SKB_TX_WORK_TIMEOUT	1 /* jiffies */
 #define AM65_CPTS_MIN_PPM		0x400
-#define AM65_CPTS_GTC_PUSH_BIT		18 /* 2.6 ms period at 200 MHz */
+#define AM65_CPTS_GTC_PUSH_BIT		15 /* 328 us period at 200 MHz */
 #define AM65_CPTS_GTC_PUSH_PERIOD	BIT_ULL(AM65_CPTS_GTC_PUSH_BIT + 1)
 #define AM65_CPTS_GTC_PUSH_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_GTC_PUSH_TRIES	3
