@@ -317,9 +317,32 @@ static bool am65_cpts_fifo_pop_event(struct am65_cpts *cpts,
 	return true;
 }
 
+/* TEST ONLY: counters and a fixed-lead switch, in /sys/module/am65_cpts/parameters/ */
+static int gtc_push_adapt = 1;
+module_param(gtc_push_adapt, int, 0644);
+MODULE_PARM_DESC(gtc_push_adapt, "test: learn the lead (0: use gtc_push_fixed_lead)");
+static ulong gtc_push_fixed_lead = AM65_CPTS_GTC_PUSH_LEAD_INIT;
+module_param(gtc_push_fixed_lead, ulong, 0644);
+static ulong gtc_push_events, gtc_push_requests, gtc_push_rejects, gtc_push_lead_now;
+static ulong gtc_push_took_max;
+module_param(gtc_push_events, ulong, 0444);
+module_param(gtc_push_requests, ulong, 0444);
+module_param(gtc_push_rejects, ulong, 0444);
+module_param(gtc_push_lead_now, ulong, 0444);
+module_param(gtc_push_took_max, ulong, 0444);
+/* first read to second read, ticks: <200 <400 <1000 <2000 <4000 <10000 <20000 >= */
+static ulong gtc_push_took_hist[8];
+static int gtc_push_took_n = 8;
+module_param_array(gtc_push_took_hist, ulong, &gtc_push_took_n, 0444);
+/* bits used: 10 .. 17 */
+static ulong gtc_push_bit_hist[8];
+static int gtc_push_bit_n = 8;
+module_param_array(gtc_push_bit_hist, ulong, &gtc_push_bit_n, 0444);
+
 static void am65_cpts_gtc_push_event(struct am65_cpts *cpts,
 				     struct am65_cpts_event *event)
 {
+	gtc_push_events++;
 	/* keep the first event of a request; later edges are not used */
 	if (!cpts->gtc_push_armed)
 		return;
@@ -1022,8 +1045,24 @@ static int am65_cpts_gtc_push_window(clockid_t clock_id,
 static void am65_cpts_gtc_push_learn(struct am65_cpts *cpts, u64 took,
 				     bool rejected)
 {
+	static const u64 edges[] = { 200, 400, 1000, 2000, 4000, 10000, 20000 };
 	u64 lead = cpts->gtc_push_lead;
+	int k;
 
+	for (k = 0; k < ARRAY_SIZE(edges) && took >= edges[k]; k++)
+		;
+	gtc_push_took_hist[k]++;
+	if (took > gtc_push_took_max)
+		gtc_push_took_max = took;
+	if (rejected)
+		gtc_push_rejects++;
+	if (!READ_ONCE(gtc_push_adapt)) {
+		cpts->gtc_push_lead = clamp_t(u64, READ_ONCE(gtc_push_fixed_lead),
+					      AM65_CPTS_GTC_PUSH_LEAD_MIN,
+					      AM65_CPTS_GTC_PUSH_LEAD_MAX);
+		gtc_push_lead_now = cpts->gtc_push_lead;
+		return;
+	}
 	if (rejected)
 		lead = max(2 * lead, 2 * took);
 	else if (2 * took > lead)
@@ -1032,6 +1071,7 @@ static void am65_cpts_gtc_push_learn(struct am65_cpts *cpts, u64 took,
 		lead -= lead / 16;
 	cpts->gtc_push_lead = clamp_t(u64, lead, AM65_CPTS_GTC_PUSH_LEAD_MIN,
 				      AM65_CPTS_GTC_PUSH_LEAD_MAX);
+	gtc_push_lead_now = cpts->gtc_push_lead;
 }
 
 /*
@@ -1072,6 +1112,7 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 	u32 bit;
 
 	mutex_lock(&cpts->gtc_push_lock);
+	gtc_push_requests++;
 
 	/* no edges while the input is enabled, until a bit is selected */
 	ret = am65_cpts_gtc_push_select(cpts, AM65_CPTS_GTC_PUSH_IDLE_BIT);
@@ -1097,8 +1138,14 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 		 * after the second read, the bit was selected before the edge
 		 * and the first event is of the edge.
 		 */
+		if (!READ_ONCE(gtc_push_adapt))
+			cpts->gtc_push_lead = clamp_t(u64, READ_ONCE(gtc_push_fixed_lead),
+						      AM65_CPTS_GTC_PUSH_LEAD_MIN,
+						      AM65_CPTS_GTC_PUSH_LEAD_MAX);
 		lead = cpts->gtc_push_lead;
 		bit = am65_cpts_gtc_push_bit(lead);
+		if (bit >= 10 && bit < 18)
+			gtc_push_bit_hist[bit - 10]++;
 		ret = am65_cpts_gtc_push_window(cts->clock_id, &history, bit,
 						lead, &edge);
 		if (ret)
