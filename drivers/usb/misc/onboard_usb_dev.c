@@ -576,6 +576,25 @@ static struct platform_driver onboard_dev_driver = {
 #define VENDOR_ID_VIA		0x2109
 #define VENDOR_ID_XMOS		0x20B1
 
+static struct platform_device *onboard_dev_find_pdev(struct device *dev)
+{
+	struct platform_device *pdev;
+	struct device_node *np;
+
+	pdev = of_find_device_by_node(dev->of_node);
+	if (pdev)
+		return pdev;
+
+	np = of_parse_phandle(dev->of_node, "peer-hub", 0);
+	if (!np)
+		return NULL;
+
+	pdev = of_find_device_by_node(np);
+	of_node_put(np);
+
+	return pdev;
+}
+
 /*
  * Returns the onboard_dev platform device that is associated with the USB
  * device passed as parameter.
@@ -583,23 +602,11 @@ static struct platform_driver onboard_dev_driver = {
 static struct onboard_dev *_find_onboard_dev(struct device *dev)
 {
 	struct platform_device *pdev;
-	struct device_node *np;
 	struct onboard_dev *onboard_dev;
 
-	pdev = of_find_device_by_node(dev->of_node);
-	if (!pdev) {
-		np = of_parse_phandle(dev->of_node, "peer-hub", 0);
-		if (!np) {
-			dev_err(dev, "failed to find device node for peer hub\n");
-			return ERR_PTR(-EINVAL);
-		}
-
-		pdev = of_find_device_by_node(np);
-		of_node_put(np);
-
-		if (!pdev)
-			return ERR_PTR(-ENODEV);
-	}
+	pdev = onboard_dev_find_pdev(dev);
+	if (!pdev)
+		return ERR_PTR(-ENODEV);
 
 	onboard_dev = dev_get_drvdata(&pdev->dev);
 	put_device(&pdev->dev);
@@ -619,8 +626,22 @@ static struct onboard_dev *_find_onboard_dev(struct device *dev)
 
 static bool onboard_dev_usbdev_match(struct usb_device *udev)
 {
-	/* Onboard devices using this driver must have a device tree node */
-	return !!udev->dev.of_node;
+	struct platform_device *pdev;
+
+	/*
+	 * Onboard devices using this driver must have a device tree node with
+	 * a platform device, its own or its peer hub's. Leave any other device
+	 * to the generic driver.
+	 */
+	if (!udev->dev.of_node)
+		return false;
+
+	pdev = onboard_dev_find_pdev(&udev->dev);
+	if (!pdev)
+		return false;
+
+	put_device(&pdev->dev);
+	return true;
 }
 
 static int onboard_dev_usbdev_probe(struct usb_device *udev)
@@ -639,7 +660,11 @@ static int onboard_dev_usbdev_probe(struct usb_device *udev)
 	if (err)
 		return err;
 
-	return 0;
+	err = usb_generic_driver_probe(udev);
+	if (err)
+		onboard_dev_remove_usbdev(onboard_dev, udev);
+
+	return err;
 }
 
 static void onboard_dev_usbdev_disconnect(struct usb_device *udev)
@@ -647,6 +672,7 @@ static void onboard_dev_usbdev_disconnect(struct usb_device *udev)
 	struct onboard_dev *onboard_dev = dev_get_drvdata(&udev->dev);
 
 	onboard_dev_remove_usbdev(onboard_dev, udev);
+	usb_generic_driver_disconnect(udev);
 }
 
 static const struct usb_device_id onboard_dev_id_table[] = {
@@ -697,7 +723,10 @@ static struct usb_device_driver onboard_dev_usbdev_driver = {
 	.match = onboard_dev_usbdev_match,
 	.probe = onboard_dev_usbdev_probe,
 	.disconnect = onboard_dev_usbdev_disconnect,
-	.generic_subclass = 1,
+#ifdef CONFIG_PM
+	.suspend = usb_generic_driver_suspend,
+	.resume = usb_generic_driver_resume,
+#endif
 	.supports_autosuspend =	1,
 	.id_table = onboard_dev_id_table,
 };
