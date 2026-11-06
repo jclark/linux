@@ -163,7 +163,21 @@ struct am65_cpts_event {
 #define AM65_CPTS_EVENT_RX_TX_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_SKB_TX_WORK_TIMEOUT	1 /* jiffies */
 #define AM65_CPTS_MIN_PPM		0x400
-#define AM65_CPTS_GTC_PUSH_BIT		15 /* 328 us period at 200 MHz */
+/* TEST ONLY: the bit and counters, in /sys/module/am65_cpts/parameters/ */
+static int gtc_push_bit = 15;
+module_param(gtc_push_bit, int, 0644);
+MODULE_PARM_DESC(gtc_push_bit, "test: the counter bit exported as the push event");
+static int gtc_push_cur = 15;	/* gtc_push_bit, read at the start of each request */
+static ulong gtc_push_events, gtc_push_requests, gtc_push_rejects, gtc_push_took_max;
+module_param(gtc_push_events, ulong, 0444);
+module_param(gtc_push_requests, ulong, 0444);
+module_param(gtc_push_rejects, ulong, 0444);
+module_param(gtc_push_took_max, ulong, 0444);
+/* first read to second read, ticks: <200 <400 <1000 <2000 <4000 <10000 <20000 >= */
+static ulong gtc_push_took_hist[8];
+static int gtc_push_took_n = 8;
+module_param_array(gtc_push_took_hist, ulong, &gtc_push_took_n, 0444);
+#define AM65_CPTS_GTC_PUSH_BIT		gtc_push_cur
 #define AM65_CPTS_GTC_PUSH_PERIOD	BIT_ULL(AM65_CPTS_GTC_PUSH_BIT + 1)
 #define AM65_CPTS_GTC_PUSH_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_GTC_PUSH_TRIES	3
@@ -315,6 +329,7 @@ static bool am65_cpts_fifo_pop_event(struct am65_cpts *cpts,
 static void am65_cpts_gtc_push_event(struct am65_cpts *cpts,
 				     struct am65_cpts_event *event)
 {
+	gtc_push_events++;
 	/* keep the first event of a request; later edges are not used */
 	if (!cpts->gtc_push_armed)
 		return;
@@ -992,6 +1007,8 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 	int i, ret;
 
 	mutex_lock(&cpts->gtc_push_lock);
+	gtc_push_cur = clamp(READ_ONCE(gtc_push_bit), 8, 30);
+	gtc_push_requests++;
 
 	ret = regmap_update_bits(cpts->gtc, AM65_CPTS_GTC_PUSHEVT,
 				 AM65_CPTS_GTC_PUSHEVT_EXPBIT_SEL,
@@ -1037,7 +1054,19 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 
 		edge = am65_cpts_gtc_push_edge(history.cycles) +
 		       AM65_CPTS_GTC_PUSH_PERIOD;
+		{
+			static const u64 edges[] = { 200, 400, 1000, 2000, 4000, 10000, 20000 };
+			u64 took = after.cycles - history.cycles;
+			int k;
+
+			for (k = 0; k < ARRAY_SIZE(edges) && took >= edges[k]; k++)
+				;
+			gtc_push_took_hist[k]++;
+			if (took > gtc_push_took_max)
+				gtc_push_took_max = took;
+		}
 		if (edge <= after.cycles) {
+			gtc_push_rejects++;
 			dev_dbg(cpts->dev, "%s: edge %llu during enable\n",
 				__func__, edge);
 			ret = -EAGAIN;
