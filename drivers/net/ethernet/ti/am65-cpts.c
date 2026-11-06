@@ -167,6 +167,7 @@ struct am65_cpts_event {
 #define AM65_CPTS_GTC_PUSH_PERIOD	BIT_ULL(AM65_CPTS_GTC_PUSH_BIT + 1)
 #define AM65_CPTS_GTC_PUSH_TIMEOUT	(20) /* ms */
 #define AM65_CPTS_GTC_PUSH_TRIES	3
+#define AM65_CPTS_GTC_PUSH_DRAIN_PASSES	8
 
 struct am65_cpts {
 	struct device *dev;
@@ -935,6 +936,27 @@ struct am65_cpts_gtc_push {
 	u64 cycles;
 };
 
+/*
+ * Read the FIFO until it is empty. One __am65_cpts_fifo_read() takes at most
+ * AM65_CPTS_FIFO_DEPTH events, and after a burst of push edges (a request that
+ * wakes up late leaves the input enabled for many periods) more can be
+ * waiting. A push event left behind would be taken for the next attempt's.
+ * With the push input disabled no new push events arrive, so after enough
+ * passes every old one has been read even if packet events keep the FIFO busy.
+ */
+static int am65_cpts_gtc_push_drain(struct am65_cpts *cpts)
+{
+	int i;
+
+	for (i = 0; i < AM65_CPTS_GTC_PUSH_DRAIN_PASSES; i++) {
+		__am65_cpts_fifo_read(cpts);
+		if (!(am65_cpts_read32(cpts, intstat_raw) &
+		      AM65_CPTS_INTSTAT_RAW_TS_PEND))
+			return 0;
+	}
+	return -EBUSY;
+}
+
 /* the last rising edge of the exported bit at or before cycles */
 static u64 am65_cpts_gtc_push_edge(u64 cycles)
 {
@@ -985,9 +1007,11 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 	for (i = 0; i < AM65_CPTS_GTC_PUSH_TRIES; i++) {
 		/* drop any old events, then accept the next push event */
 		spin_lock_irqsave(&cpts->lock, flags);
-		__am65_cpts_fifo_read(cpts);
-		cpts->gtc_push_armed = true;
+		ret = am65_cpts_gtc_push_drain(cpts);
+		cpts->gtc_push_armed = !ret;
 		spin_unlock_irqrestore(&cpts->lock, flags);
+		if (ret)
+			goto disarm;
 
 		/*
 		 * Read the counter before and after enabling the input. An
