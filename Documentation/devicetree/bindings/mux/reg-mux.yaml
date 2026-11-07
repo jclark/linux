@@ -24,6 +24,9 @@ properties:
   '#mux-control-cells':
     enum: [ 0, 1 ]
 
+  '#mux-state-cells':
+    enum: [ 1, 2 ]
+
   mux-reg-masks:
     $ref: /schemas/types.yaml#/definitions/uint32-matrix
     items:
@@ -37,7 +40,11 @@ properties:
 required:
   - compatible
   - mux-reg-masks
-  - '#mux-control-cells'
+anyOf:
+  - required:
+      - '#mux-control-cells'
+  - required:
+      - '#mux-state-cells'
 
 additionalProperties: false
 
