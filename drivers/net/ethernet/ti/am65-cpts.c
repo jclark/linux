@@ -865,12 +865,13 @@ static int am65_cpts_gtc_push_drain(struct am65_cpts *cpts)
 	return -EBUSY;
 }
 
-/* the last rising edge of the exported bit at or before cycles */
-static u64 am65_cpts_gtc_push_edge(u64 cycles)
+/* the first rising edge of the exported bit after cycles */
+static u64 am65_cpts_gtc_push_next_edge(u64 cycles)
 {
 	u64 half = AM65_CPTS_GTC_PUSH_PERIOD / 2;
 
-	return round_down(cycles - half, AM65_CPTS_GTC_PUSH_PERIOD) + half;
+	return round_down(cycles - half, AM65_CPTS_GTC_PUSH_PERIOD) + half +
+	       AM65_CPTS_GTC_PUSH_PERIOD;
 }
 
 static int am65_cpts_gtc_push_read(ktime_t *device,
@@ -887,121 +888,170 @@ static int am65_cpts_gtc_push_read(ktime_t *device,
 	return 0;
 }
 
-static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
-					struct system_device_crosststamp *cts)
+/* select the counter bit the GTC exports on its push event output */
+static int am65_cpts_gtc_push_select(struct am65_cpts *cpts)
 {
-	struct am65_cpts *cpts = container_of(ptp, struct am65_cpts, ptp_info);
-	unsigned long tmo = msecs_to_jiffies(AM65_CPTS_GTC_PUSH_TIMEOUT);
-	struct system_time_snapshot history, after;
-	struct am65_cpts_gtc_push push;
-	unsigned long flags;
-	u64 edge, popped;
 	u32 val;
-	int i, ret;
-
-	mutex_lock(&cpts->gtc_push_lock);
+	int ret;
 
 	ret = regmap_update_bits(cpts->gtc, AM65_CPTS_GTC_PUSHEVT,
 				 AM65_CPTS_GTC_PUSHEVT_EXPBIT_SEL,
 				 FIELD_PREP(AM65_CPTS_GTC_PUSHEVT_EXPBIT_SEL,
 					    AM65_CPTS_GTC_PUSH_BIT));
 	if (ret)
-		goto out;
+		return ret;
 	/* flush the posted write before the input is enabled */
-	ret = regmap_read(cpts->gtc, AM65_CPTS_GTC_PUSHEVT, &val);
+	return regmap_read(cpts->gtc, AM65_CPTS_GTC_PUSHEVT, &val);
+}
+
+/* drop any old events, then accept the next push event */
+static int am65_cpts_gtc_push_arm(struct am65_cpts *cpts)
+{
+	unsigned long flags;
+	int ret;
+
+	spin_lock_irqsave(&cpts->lock, flags);
+	ret = am65_cpts_gtc_push_drain(cpts);
+	cpts->gtc_push_armed = !ret;
+	spin_unlock_irqrestore(&cpts->lock, flags);
+
+	return ret;
+}
+
+static void am65_cpts_gtc_push_disarm(struct am65_cpts *cpts)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&cpts->lock, flags);
+	cpts->gtc_push_armed = false;
+	spin_unlock_irqrestore(&cpts->lock, flags);
+}
+
+/*
+ * Enable or disable the push input and read CONTROL back. After a disable,
+ * the read-back means no event of an edge captured before the disable
+ * reaches the FIFO after the next drain.
+ */
+static void am65_cpts_gtc_push_enable(struct am65_cpts *cpts, bool on)
+{
+	mutex_lock(&cpts->ptp_clk_lock);
+	am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, on);
+	am65_cpts_read32(cpts, control);
+	mutex_unlock(&cpts->ptp_clk_lock);
+}
+
+/*
+ * Wait for the event of the edge at counter value edge. Returns -EAGAIN if
+ * the event may be of a later edge.
+ */
+static int am65_cpts_gtc_push_wait(struct am65_cpts *cpts, u64 edge,
+				   struct am65_cpts_gtc_push *push)
+{
+	unsigned long tmo = msecs_to_jiffies(AM65_CPTS_GTC_PUSH_TIMEOUT);
+	unsigned long flags;
+	u64 popped;
+
+	if (!wait_event_timeout(cpts->gtc_push_wq,
+				!READ_ONCE(cpts->gtc_push_armed), tmo))
+		return -ETIMEDOUT;
+
+	/*
+	 * The event handler read the counter when it took the event from the
+	 * FIFO. If that was a period or more after the edge, the event may be
+	 * of a later edge: when the FIFO overruns, the CPTS loses events.
+	 */
+	spin_lock_irqsave(&cpts->lock, flags);
+	push->ts = cpts->gtc_push_ts;
+	popped = cpts->gtc_push_cycles;
+	spin_unlock_irqrestore(&cpts->lock, flags);
+	if ((s64)(popped - edge) >= (s64)AM65_CPTS_GTC_PUSH_PERIOD) {
+		dev_dbg(cpts->dev, "%s: event read at %llu, edge %llu\n",
+			__func__, popped, edge);
+		return -EAGAIN;
+	}
+
+	push->cycles = edge;
+	return 0;
+}
+
+/*
+ * Make one attempt to capture a push event. Whatever the outcome, the input
+ * is left disabled and the request disarmed.
+ */
+static int am65_cpts_gtc_push_try(struct am65_cpts *cpts, clockid_t clock_id,
+				  struct system_time_snapshot *before,
+				  struct am65_cpts_gtc_push *push)
+{
+	struct system_time_snapshot after;
+	u64 edge;
+	int ret;
+
+	ret = am65_cpts_gtc_push_arm(cpts);
+	if (ret)
+		return ret;
+
+	/*
+	 * Read the counter before and after enabling the input. An edge at or
+	 * before the first read reaches the CPTS long before the enable does,
+	 * which needs a CONTROL read first. After the read-back of CONTROL the
+	 * input is enabled, so an edge after the second read is captured. If
+	 * no edge lies between the two reads, the first event is of the first
+	 * edge after the first read.
+	 */
+	ktime_get_snapshot_id(clock_id, before);
+	am65_cpts_gtc_push_enable(cpts, true);
+	ktime_get_snapshot_id(clock_id, &after);
+
+	if (!before->valid || !after.valid ||
+	    before->cs_id != CSID_ARM_ARCH_COUNTER ||
+	    after.cs_id != CSID_ARM_ARCH_COUNTER) {
+		ret = -ENODEV;
+		goto disable;
+	}
+
+	edge = am65_cpts_gtc_push_next_edge(before->cycles);
+	if (edge <= after.cycles) {
+		dev_dbg(cpts->dev, "%s: edge %llu during enable\n",
+			__func__, edge);
+		ret = -EAGAIN;
+		goto disable;
+	}
+
+	ret = am65_cpts_gtc_push_wait(cpts, edge, push);
+
+disable:
+	am65_cpts_gtc_push_enable(cpts, false);
+	am65_cpts_gtc_push_disarm(cpts);
+
+	return ret;
+}
+
+static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
+					struct system_device_crosststamp *cts)
+{
+	struct am65_cpts *cpts = container_of(ptp, struct am65_cpts, ptp_info);
+	struct system_time_snapshot before;
+	struct am65_cpts_gtc_push push;
+	int i, ret;
+
+	mutex_lock(&cpts->gtc_push_lock);
+
+	ret = am65_cpts_gtc_push_select(cpts);
 	if (ret)
 		goto out;
 
 	for (i = 0; i < AM65_CPTS_GTC_PUSH_TRIES; i++) {
-		/* drop any old events, then accept the next push event */
-		spin_lock_irqsave(&cpts->lock, flags);
-		ret = am65_cpts_gtc_push_drain(cpts);
-		cpts->gtc_push_armed = !ret;
-		spin_unlock_irqrestore(&cpts->lock, flags);
-		if (ret)
-			goto disarm;
-
-		/*
-		 * Read the counter before and after enabling the input. An
-		 * edge at or before the first read reaches the CPTS long
-		 * before the enable does, which needs a CONTROL read first.
-		 * After the read-back of CONTROL the input is enabled, so an
-		 * edge after the second read is captured. If no edge lies
-		 * between the two reads, the first event is of the first edge
-		 * after the first read.
-		 */
-		ktime_get_snapshot_id(cts->clock_id, &history);
-		mutex_lock(&cpts->ptp_clk_lock);
-		am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 1);
-		am65_cpts_read32(cpts, control);
-		mutex_unlock(&cpts->ptp_clk_lock);
-		ktime_get_snapshot_id(cts->clock_id, &after);
-		if (!history.valid || !after.valid ||
-		    history.cs_id != CSID_ARM_ARCH_COUNTER ||
-		    after.cs_id != CSID_ARM_ARCH_COUNTER) {
-			ret = -ENODEV;
-			goto disable;
-		}
-
-		edge = am65_cpts_gtc_push_edge(history.cycles) +
-		       AM65_CPTS_GTC_PUSH_PERIOD;
-		if (edge <= after.cycles) {
-			dev_dbg(cpts->dev, "%s: edge %llu during enable\n",
-				__func__, edge);
-			ret = -EAGAIN;
-		} else if (!wait_event_timeout(cpts->gtc_push_wq,
-					       !READ_ONCE(cpts->gtc_push_armed),
-					       tmo)) {
-			ret = -ETIMEDOUT;
-			goto disable;
-		} else {
-			/*
-			 * The event handler read the counter when it took the
-			 * event from the FIFO. If that was a period or more
-			 * after the edge, the event may be of a later edge:
-			 * when the FIFO overruns, the CPTS loses events.
-			 */
-			spin_lock_irqsave(&cpts->lock, flags);
-			push.ts = cpts->gtc_push_ts;
-			popped = cpts->gtc_push_cycles;
-			spin_unlock_irqrestore(&cpts->lock, flags);
-			if ((s64)(popped - edge) >=
-			    (s64)AM65_CPTS_GTC_PUSH_PERIOD) {
-				dev_dbg(cpts->dev, "%s: event read at %llu, edge %llu\n",
-					__func__, popped, edge);
-				ret = -EAGAIN;
-			} else {
-				ret = 0;
-			}
-		}
-
-		/*
-		 * Read CONTROL back, so that no event of an edge captured
-		 * before the disable reaches the FIFO after the next drain.
-		 */
-		mutex_lock(&cpts->ptp_clk_lock);
-		am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 0);
-		am65_cpts_read32(cpts, control);
-		mutex_unlock(&cpts->ptp_clk_lock);
-		if (!ret)
+		ret = am65_cpts_gtc_push_try(cpts, cts->clock_id, &before,
+					     &push);
+		if (ret != -EAGAIN)
 			break;
 	}
 	if (ret)
-		goto disarm;
+		goto out;
 
-	push.cycles = edge;
+	/* before can serve as history_begin: the edge is after it */
 	ret = get_device_system_crosststamp(am65_cpts_gtc_push_read, &push,
-					    &history, cts);
-	goto out;
-
-disable:
-	mutex_lock(&cpts->ptp_clk_lock);
-	am65_cpts_extts_enable_hw(cpts, cpts->gtc_push_hw_idx, 0);
-	mutex_unlock(&cpts->ptp_clk_lock);
-disarm:
-	spin_lock_irqsave(&cpts->lock, flags);
-	cpts->gtc_push_armed = false;
-	spin_unlock_irqrestore(&cpts->lock, flags);
+					    &before, cts);
 out:
 	mutex_unlock(&cpts->gtc_push_lock);
 	return ret;
