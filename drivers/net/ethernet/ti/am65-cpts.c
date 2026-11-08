@@ -1558,6 +1558,10 @@ void am65_cpts_suspend(struct am65_cpts *cpts)
 {
 	/* save state and disable CPTS */
 	cpts->sr_control = am65_cpts_read32(cpts, control);
+	/* the GTC push input is enabled only during a request */
+	if (cpts->gtc)
+		cpts->sr_control &= ~BIT(AM65_CPTS_CONTROL_HW1_TS_PUSH_OFFSET +
+					 cpts->gtc_push_hw_idx);
 	cpts->sr_int_enable = am65_cpts_read32(cpts, int_enable);
 	cpts->sr_rftclk_sel = am65_cpts_read32(cpts, rftclk_sel);
 	cpts->sr_ts_ppm_hi = am65_cpts_read32(cpts, ts_ppm_hi);
