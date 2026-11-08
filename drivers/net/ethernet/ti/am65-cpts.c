@@ -1048,6 +1048,9 @@ static int am65_cpts_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 		if (ret != -EAGAIN)
 			break;
 	}
+	/* as other drivers do when a cross-timestamp cannot be had now */
+	if (ret == -EAGAIN)
+		ret = -EBUSY;
 	if (ret)
 		goto out;
 
