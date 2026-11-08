@@ -844,27 +844,6 @@ struct am65_cpts_gtc_push {
 	u64 cycles;
 };
 
-/*
- * Read the FIFO until it is empty. One __am65_cpts_fifo_read() takes at most
- * AM65_CPTS_FIFO_DEPTH events, and after a burst of push edges (a request that
- * wakes up late leaves the input enabled for many periods) more can be
- * waiting. A push event left behind would be taken for the next attempt's.
- * With the push input disabled no new push events arrive, so after enough
- * passes every old one has been read even if packet events keep the FIFO busy.
- */
-static int am65_cpts_gtc_push_drain(struct am65_cpts *cpts)
-{
-	int i;
-
-	for (i = 0; i < AM65_CPTS_GTC_PUSH_DRAIN_PASSES; i++) {
-		__am65_cpts_fifo_read(cpts);
-		if (!(am65_cpts_read32(cpts, intstat_raw) &
-		      AM65_CPTS_INTSTAT_RAW_TS_PEND))
-			return 0;
-	}
-	return -EBUSY;
-}
-
 /* the first rising edge of the exported bit after cycles */
 static u64 am65_cpts_gtc_push_next_edge(u64 cycles)
 {
@@ -904,18 +883,33 @@ static int am65_cpts_gtc_push_select(struct am65_cpts *cpts)
 	return regmap_read(cpts->gtc, AM65_CPTS_GTC_PUSHEVT, &val);
 }
 
-/* drop any old events, then accept the next push event */
+/*
+ * Read the FIFO until it is empty, then accept the next push event. One
+ * __am65_cpts_fifo_read() takes at most AM65_CPTS_FIFO_DEPTH events, and after
+ * a burst of push edges (a request that wakes up late leaves the input enabled
+ * for many periods) more can be waiting. A push event left behind would be
+ * taken for the next attempt's. With the push input disabled no new push
+ * events arrive, so after enough passes every old one has been read even if
+ * packet events keep the FIFO busy. The lock is dropped between passes; a push
+ * event read meanwhile by the IRQ thread is ignored, as nothing is armed.
+ */
 static int am65_cpts_gtc_push_arm(struct am65_cpts *cpts)
 {
 	unsigned long flags;
-	int ret;
+	int i;
 
-	spin_lock_irqsave(&cpts->lock, flags);
-	ret = am65_cpts_gtc_push_drain(cpts);
-	cpts->gtc_push_armed = !ret;
-	spin_unlock_irqrestore(&cpts->lock, flags);
-
-	return ret;
+	for (i = 0; i < AM65_CPTS_GTC_PUSH_DRAIN_PASSES; i++) {
+		spin_lock_irqsave(&cpts->lock, flags);
+		__am65_cpts_fifo_read(cpts);
+		if (!(am65_cpts_read32(cpts, intstat_raw) &
+		      AM65_CPTS_INTSTAT_RAW_TS_PEND)) {
+			cpts->gtc_push_armed = true;
+			spin_unlock_irqrestore(&cpts->lock, flags);
+			return 0;
+		}
+		spin_unlock_irqrestore(&cpts->lock, flags);
+	}
+	return -EBUSY;
 }
 
 static void am65_cpts_gtc_push_disarm(struct am65_cpts *cpts)
