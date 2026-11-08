@@ -942,7 +942,7 @@ static void am65_cpts_gtc_push_enable(struct am65_cpts *cpts, bool on)
 
 /*
  * Wait for the event of the edge at counter value edge. Returns -EAGAIN if
- * the event may be of a later edge.
+ * the event may not be of that edge.
  */
 static int am65_cpts_gtc_push_wait(struct am65_cpts *cpts, u64 edge,
 				   struct am65_cpts_gtc_push *push)
@@ -957,14 +957,16 @@ static int am65_cpts_gtc_push_wait(struct am65_cpts *cpts, u64 edge,
 
 	/*
 	 * The event handler read the counter when it took the event from the
-	 * FIFO. If that was a period or more after the edge, the event may be
-	 * of a later edge: when the FIFO overruns, the CPTS loses events.
+	 * FIFO. The event of the edge cannot be taken before the edge. If it
+	 * was taken a period or more after the edge, the event may be of a
+	 * later edge: when the FIFO overruns, the CPTS loses events.
 	 */
 	spin_lock_irqsave(&cpts->lock, flags);
 	push->ts = cpts->gtc_push_ts;
 	popped = cpts->gtc_push_cycles;
 	spin_unlock_irqrestore(&cpts->lock, flags);
-	if ((s64)(popped - edge) >= (s64)AM65_CPTS_GTC_PUSH_PERIOD) {
+	if ((s64)(popped - edge) < 0 ||
+	    (s64)(popped - edge) >= (s64)AM65_CPTS_GTC_PUSH_PERIOD) {
 		dev_dbg(cpts->dev, "%s: event read at %llu, edge %llu\n",
 			__func__, popped, edge);
 		return -EAGAIN;
