@@ -935,8 +935,8 @@ static void am65_cpts_gtc_push_enable(struct am65_cpts *cpts, bool on)
 }
 
 /*
- * Wait for the event of the edge at counter value edge. Returns -EAGAIN if
- * the event may not be of that edge.
+ * Wait for the event of the edge at counter value edge. Returns -EAGAIN if no
+ * event arrives in time or the event may not be of that edge.
  */
 static int am65_cpts_gtc_push_wait(struct am65_cpts *cpts, u64 edge,
 				   struct am65_cpts_gtc_push *push)
@@ -946,8 +946,11 @@ static int am65_cpts_gtc_push_wait(struct am65_cpts *cpts, u64 edge,
 	u64 popped;
 
 	if (!wait_event_timeout(cpts->gtc_push_wq,
-				!READ_ONCE(cpts->gtc_push_armed), tmo))
-		return -ETIMEDOUT;
+				!READ_ONCE(cpts->gtc_push_armed), tmo)) {
+		dev_dbg(cpts->dev, "%s: no event for edge %llu\n",
+			__func__, edge);
+		return -EAGAIN;
+	}
 
 	/*
 	 * The event handler read the counter when it took the event from the
