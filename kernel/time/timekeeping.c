@@ -1335,6 +1335,80 @@ void ktime_get_snapshot_id(clockid_t clock_id, struct system_time_snapshot *syst
 }
 EXPORT_SYMBOL_GPL(ktime_get_snapshot_id);
 
+/**
+ * ktime_shift_snapshot - Shift a system time snapshot by a monotonic raw interval
+ * @clock_id:	The clock ID the snapshot was taken with
+ * @snap:	The system time snapshot to shift
+ * @raw_ns:	Interval in nanoseconds of the monotonic raw clock related
+ *		to @clock_id. Can be negative.
+ *
+ * Add @raw_ns to the monotonic raw time of the snapshot, and @raw_ns
+ * scaled by the current frequency of @clock_id relative to monotonic raw
+ * to its system time. The interval is not scaled for CLOCK_MONOTONIC_RAW,
+ * or if @clock_id is an AUX clock that is not enabled.
+ *
+ * No counter value corresponds to the shifted times, so the counter
+ * values are cleared and the clocksource IDs are set to CSID_GENERIC.
+ *
+ * A snapshot that is not valid is left unchanged.
+ */
+void ktime_shift_snapshot(clockid_t clock_id, struct system_time_snapshot *snap, s64 raw_ns)
+{
+	struct tk_data *tkd = NULL;
+	u32 mult_sys, mult_raw;
+	struct timekeeper *tk;
+	s64 sys_ns = raw_ns;
+	unsigned int seq;
+	u64 ns;
+
+	if (!snap->valid)
+		return;
+
+	switch (clock_id) {
+	case CLOCK_REALTIME:
+	case CLOCK_MONOTONIC:
+	case CLOCK_BOOTTIME:
+		tkd = &tk_core;
+		break;
+	case CLOCK_MONOTONIC_RAW:
+		break;
+	case CLOCK_AUX ... CLOCK_AUX_LAST:
+		tkd = aux_get_tk_data(clock_id);
+		break;
+	default:
+		WARN_ON_ONCE(1);
+		break;
+	}
+
+	if (tkd) {
+		tk = &tkd->timekeeper;
+
+		do {
+			seq = read_seqcount_begin(&tkd->seq);
+
+			mult_sys = tk->tkr_mono.mult;
+			mult_raw = tk->tkr_raw.mult;
+
+			/* Aux clocks can be invalid */
+			if (!tk->clock_valid)
+				mult_sys = mult_raw;
+		} while (read_seqcount_retry(&tkd->seq, seq));
+
+		ns = mul_u64_u32_div(abs(raw_ns), mult_sys, mult_raw);
+		sys_ns = raw_ns < 0 ? -(s64)ns : ns;
+	}
+
+	snap->systime = ktime_add_ns(snap->systime, sys_ns);
+	snap->monoraw = ktime_add_ns(snap->monoraw, raw_ns);
+
+	/* No counter value corresponds to the shifted times */
+	snap->cycles = 0;
+	snap->cs_id = CSID_GENERIC;
+	snap->hw_cycles = 0;
+	snap->hw_csid = CSID_GENERIC;
+}
+EXPORT_SYMBOL_GPL(ktime_shift_snapshot);
+
 /* Scale base by mult/div checking for overflow */
 static int scale64_check_overflow(u64 mult, u64 div, u64 *base)
 {

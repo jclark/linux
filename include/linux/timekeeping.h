@@ -367,6 +367,11 @@ extern int get_device_system_crosststamp(
 extern void ktime_get_snapshot_id(clockid_t clock_id, struct system_time_snapshot *systime_snapshot);
 
 /*
+ * Shift a system time snapshot by a monotonic raw interval.
+ */
+extern void ktime_shift_snapshot(clockid_t clock_id, struct system_time_snapshot *snap, s64 raw_ns);
+
+/*
  * Persistent clock related interfaces
  */
 extern int persistent_clock_is_local;
