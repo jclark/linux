@@ -483,7 +483,7 @@ struct stmmac_ops {
 #define stmmac_rss_configure(__priv, __args...) \
 	stmmac_do_callback(__priv, mac, rss_configure, __args)
 #define stmmac_get_mac_tx_timestamp(__priv, __args...) \
-	stmmac_do_callback(__priv, mac, get_mac_tx_timestamp, __args)
+	stmmac_do_callback(__priv, mac, get_mac_tx_timestamp, __priv, __args)
 #define stmmac_sarc_configure(__priv, __args...) \
 	stmmac_do_void_callback(__priv, mac, sarc_configure, __args)
 #define stmmac_config_l3_filter(__priv, __args...) \
