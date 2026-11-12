@@ -146,9 +146,6 @@ static void stmmac_extts_report(struct stmmac_priv *priv, unsigned int index,
 
 	lockdep_assert_held(&priv->aux_ts_lock);
 
-	if (!on)
-		stmmac_aux_snapshot_irq(priv, priv, false);
-
 	spin_lock_irqsave(&priv->hw->ts_status_lock, flags);
 	if (on) {
 		priv->extts_index = index;
@@ -156,10 +153,29 @@ static void stmmac_extts_report(struct stmmac_priv *priv, unsigned int index,
 	} else {
 		priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
 	}
+	stmmac_aux_snapshot_irq(priv, priv, on && priv->mac_irq_ready);
 	spin_unlock_irqrestore(&priv->hw->ts_status_lock, flags);
+}
 
-	if (on)
-		stmmac_aux_snapshot_irq(priv, priv, true);
+/**
+ * stmmac_ptp_mac_irq_ready - the MAC interrupt handler was installed or goes
+ * @priv: driver private structure
+ * @ready: the handler is installed
+ * Description: on a core that enables an interrupt for auxiliary snapshots
+ * only while an external timestamp channel is enabled, keep it disabled
+ * while there is no handler for it. A snapshot taken meanwhile stays in the
+ * FIFO, and is reported when the interrupt is enabled.
+ */
+void stmmac_ptp_mac_irq_ready(struct stmmac_priv *priv, bool ready)
+{
+	unsigned long flags;
+	bool on;
+
+	spin_lock_irqsave(&priv->hw->ts_status_lock, flags);
+	priv->mac_irq_ready = ready;
+	on = ready && (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN);
+	stmmac_aux_snapshot_irq(priv, priv, on);
+	spin_unlock_irqrestore(&priv->hw->ts_status_lock, flags);
 }
 
 /* Enable or disable an auxiliary snapshot. Called with aux_ts_lock held.
