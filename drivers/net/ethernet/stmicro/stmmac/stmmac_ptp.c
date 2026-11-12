@@ -134,16 +134,37 @@ static int stmmac_set_time(struct ptp_clock_info *ptp,
 	return 0;
 }
 
+/* Enable or disable an auxiliary snapshot, with an empty snapshot FIFO.
+ * Called with aux_ts_lock held.
+ */
+static int stmmac_extts_configure(struct stmmac_priv *priv, unsigned int index,
+				  bool on)
+{
+	void __iomem *ptpaddr = priv->ptpaddr;
+	u32 acr_value;
+
+	acr_value = readl(ptpaddr + PTP_ACR);
+	acr_value &= ~PTP_ACR_MASK;
+
+	/* Enable External snapshot trigger */
+	if (on)
+		acr_value |= PTP_ACR_ATSEN(index) | PTP_ACR_ATSFC;
+
+	writel(acr_value, ptpaddr + PTP_ACR);
+
+	/* wait for auxts fifo clear to finish */
+	return readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
+				  !(acr_value & PTP_ACR_ATSFC), 10, 10000);
+}
+
 static int stmmac_enable(struct ptp_clock_info *ptp,
 			 struct ptp_clock_request *rq, int on)
 {
 	struct stmmac_priv *priv =
 	    container_of(ptp, struct stmmac_priv, ptp_clock_ops);
-	void __iomem *ptpaddr = priv->ptpaddr;
 	struct stmmac_pps_cfg *cfg;
 	int ret = -EOPNOTSUPP;
 	unsigned long flags;
-	u32 acr_value;
 
 	switch (rq->type) {
 	case PTP_CLK_REQ_PEROUT: {
@@ -196,38 +217,53 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		break;
 	}
 	case PTP_CLK_REQ_EXTTS: {
-		u8 channel;
+		bool enabled;
 
 		mutex_lock(&priv->aux_ts_lock);
-		acr_value = readl(ptpaddr + PTP_ACR);
-		channel = ilog2(FIELD_GET(PTP_ACR_MASK, acr_value));
-		acr_value &= ~PTP_ACR_MASK;
+		enabled = priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN;
 
-		if (on) {
-			if (FIELD_GET(PTP_ACR_MASK, acr_value)) {
-				netdev_err(priv->dev,
-					   "Cannot enable auxiliary snapshot %d as auxiliary snapshot %d is already enabled",
-					rq->extts.index, channel);
-				mutex_unlock(&priv->aux_ts_lock);
-				return -EBUSY;
-			}
-
-			priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
-
-			/* Enable External snapshot trigger */
-			acr_value |= PTP_ACR_ATSEN(rq->extts.index);
-			acr_value |= PTP_ACR_ATSFC;
-		} else {
-			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+		/* Only one auxiliary snapshot can be enabled at a time. The
+		 * enable bits of PTP_ACR do not tell: a cross-timestamp may
+		 * have left the bit of its internal snapshot set.
+		 */
+		if (on && enabled && priv->extts_index != rq->extts.index) {
+			netdev_err(priv->dev,
+				   "Cannot enable auxiliary snapshot %d as auxiliary snapshot %d is already enabled",
+				   rq->extts.index, priv->extts_index);
+			mutex_unlock(&priv->aux_ts_lock);
+			return -EBUSY;
 		}
+
+		/* Disabling a channel that is not enabled changes nothing */
+		if (!on && (!enabled || priv->extts_index != rq->extts.index)) {
+			mutex_unlock(&priv->aux_ts_lock);
+			return 0;
+		}
+
 		netdev_dbg(priv->dev, "Auxiliary Snapshot %d %s.\n",
 			   rq->extts.index, on ? "enabled" : "disabled");
-		writel(acr_value, ptpaddr + PTP_ACR);
+
+		/* Snapshots are reported as events from when the flag is set.
+		 * Set it once the FIFO is empty, and clear it first.
+		 */
+		if (on) {
+			ret = stmmac_extts_configure(priv, rq->extts.index,
+						     true);
+			if (ret) {
+				mutex_unlock(&priv->aux_ts_lock);
+				return ret;
+			}
+
+			priv->extts_index = rq->extts.index;
+			priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
+			stmmac_aux_snapshot_irq(priv, priv, true);
+		} else {
+			stmmac_aux_snapshot_irq(priv, priv, false);
+			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+			ret = stmmac_extts_configure(priv, rq->extts.index,
+						     false);
+		}
 		mutex_unlock(&priv->aux_ts_lock);
-		/* wait for auxts fifo clear to finish */
-		ret = readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
-					 !(acr_value & PTP_ACR_ATSFC),
-					 10, 10000);
 		break;
 	}
 
@@ -354,6 +390,25 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 }
 
 /**
+ * stmmac_ptp_restore_extts - enable the external timestamp channel again
+ * @priv: driver private structure
+ * Description: a reset of the MAC, as on resume, disables the auxiliary
+ * snapshot and, on XGMAC, the timestamp interrupt. Enable them again if an
+ * external timestamp channel was enabled.
+ */
+void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
+{
+	if (!priv->ptp_clock)
+		return;
+
+	mutex_lock(&priv->aux_ts_lock);
+	if ((priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) &&
+	    !stmmac_extts_configure(priv, priv->extts_index, true))
+		stmmac_aux_snapshot_irq(priv, priv, true);
+	mutex_unlock(&priv->aux_ts_lock);
+}
+
+/**
  * stmmac_ptp_unregister
  * @priv: driver private structure
  * Description: this function will remove/unregister the ptp clock driver
@@ -362,11 +417,14 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 void stmmac_ptp_unregister(struct stmmac_priv *priv)
 {
 	if (priv->ptp_clock) {
+		/* The clock goes, and with it its enabled channel */
+		stmmac_aux_snapshot_irq(priv, priv, false);
+		priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+
 		ptp_clock_unregister(priv->ptp_clock);
 		priv->ptp_clock = NULL;
 		pr_debug("Removed PTP HW clock successfully on %s\n",
 			 priv->dev->name);
-
 		mutex_destroy(&priv->aux_ts_lock);
 	}
 }
