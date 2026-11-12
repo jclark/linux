@@ -1162,6 +1162,7 @@ static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
 	struct mac_device_info *hw = priv->hw;
 	void __iomem *ioaddr = hw->pcsr;
 	struct ptp_clock_event event;
+	struct ptp_clock *ptp_clock;
 	u32 status, num_snapshot, i;
 	unsigned long flags;
 	u64 ts;
@@ -1185,8 +1186,15 @@ static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
 	/* Without an external timestamp channel, the snapshots in the FIFO
 	 * belong to a cross-timestamp.
 	 */
-	if (!(priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) ||
-	    !priv->ptp_clock)
+	if (!(priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN))
+		return;
+
+	/* The flag is set only while the clock is registered: a request is
+	 * refused before priv->ptp_clock is set, and the flag is cleared
+	 * before the clock is unregistered. The test is for safety.
+	 */
+	ptp_clock = READ_ONCE(priv->ptp_clock);
+	if (!ptp_clock)
 		return;
 
 	num_snapshot = FIELD_GET(XGMAC_TIMESTAMP_ATSNS_MASK, status);
@@ -1199,7 +1207,7 @@ static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
 		event.type = PTP_CLOCK_EXTTS;
 		event.index = priv->extts_index;
 		event.timestamp = ts;
-		ptp_clock_event(priv->ptp_clock, &event);
+		ptp_clock_event(ptp_clock, &event);
 	}
 }
 
