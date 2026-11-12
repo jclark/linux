@@ -492,7 +492,7 @@ void stmmac_ptp_unregister(struct stmmac_priv *priv)
 		mutex_lock(&priv->aux_ts_lock);
 		stmmac_extts_report(priv, priv->extts_index, false);
 		mutex_unlock(&priv->aux_ts_lock);
-		priv->ptp_clock = NULL;
+		WRITE_ONCE(priv->ptp_clock, NULL);
 		pr_debug("Removed PTP HW clock successfully on %s\n",
 			 priv->dev->name);
 		mutex_destroy(&priv->aux_ts_lock);
