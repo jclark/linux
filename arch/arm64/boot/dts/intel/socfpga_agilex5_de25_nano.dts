@@ -95,7 +95,13 @@
 };
 
 &qspi {
-	status = "okay";
+	/*
+	 * The QSPI flash belongs to the SDM while the board boots from it (AS
+	 * mode). With Terasic's U-Boot the HPS has no access: U-Boot "sf probe"
+	 * fails and the cadence-qspi probe takes an SError. Terasic's own dts
+	 * leaves the controller disabled.
+	 */
+	status = "disabled";
 
 	flash@0 {
 		compatible = "jedec,spi-nor";
