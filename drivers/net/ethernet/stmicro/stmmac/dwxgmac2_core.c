@@ -1185,7 +1185,8 @@ static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
 	/* Without an external timestamp channel, the snapshots in the FIFO
 	 * belong to a cross-timestamp.
 	 */
-	if (!(priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN))
+	if (!(priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) ||
+	    !priv->ptp_clock)
 		return;
 
 	num_snapshot = FIELD_GET(XGMAC_TIMESTAMP_ATSNS_MASK, status);
@@ -1227,19 +1228,8 @@ void dwxgmac2_timestamp_interrupt(struct stmmac_priv *priv)
  */
 void dwxgmac2_aux_snapshot_irq(struct stmmac_priv *priv, bool enable)
 {
-	unsigned long flags;
-
 	stmmac_mac_irq_modify(priv, enable ? 0 : XGMAC_TSIE,
 			      enable ? XGMAC_TSIE : 0);
-	if (!enable)
-		return;
-
-	/* The TX path may have read the status of a snapshot taken since the
-	 * channel was enabled, and so cleared its interrupt. Report it now.
-	 */
-	spin_lock_irqsave(&priv->hw->ts_status_lock, flags);
-	dwxgmac2_timestamp_status(priv);
-	spin_unlock_irqrestore(&priv->hw->ts_status_lock, flags);
 }
 
 static int dwxgmac2_get_mac_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
