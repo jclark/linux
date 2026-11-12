@@ -7,7 +7,6 @@
 
   Author: Rayagond Kokatanur <rayagond@vayavyalabs.com>
 *******************************************************************************/
-#include "dwxgmac2.h"
 #include "stmmac.h"
 #include "stmmac_est.h"
 #include "stmmac_ptp.h"
@@ -137,14 +136,14 @@ static int stmmac_set_time(struct ptp_clock_info *ptp,
 	return 0;
 }
 
-/* Enable or disable an auxiliary snapshot. Called with aux_ts_lock held. */
+/* Enable or disable an auxiliary snapshot, with an empty snapshot FIFO.
+ * Called with aux_ts_lock held.
+ */
 static int stmmac_extts_configure(struct stmmac_priv *priv, unsigned int index,
 				  bool on)
 {
-	bool xgmac = priv->plat->core_type == DWMAC_CORE_XGMAC;
 	void __iomem *ptpaddr = priv->ptpaddr;
 	u32 acr_value;
-	int ret;
 
 	acr_value = readl(ptpaddr + PTP_ACR);
 	acr_value &= ~PTP_ACR_MASK;
@@ -153,21 +152,11 @@ static int stmmac_extts_configure(struct stmmac_priv *priv, unsigned int index,
 	if (on)
 		acr_value |= PTP_ACR_ATSEN(index) | PTP_ACR_ATSFC;
 
-	/* XGMAC does not enable the timestamp interrupt by default:
-	 * the cross-timestamp of dwmac-socfpga polls its status bit.
-	 */
-	if (xgmac && !on)
-		stmmac_mac_irq_modify(priv, XGMAC_TSIE, 0);
 	writel(acr_value, ptpaddr + PTP_ACR);
-	/* wait for auxts fifo clear to finish */
-	ret = readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
-				 !(acr_value & PTP_ACR_ATSFC),
-				 10, 10000);
-	/* The FIFO is empty now, so no earlier snapshot is reported */
-	if (xgmac && on && !ret)
-		stmmac_mac_irq_modify(priv, 0, XGMAC_TSIE);
 
-	return ret;
+	/* wait for auxts fifo clear to finish */
+	return readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
+				  !(acr_value & PTP_ACR_ATSFC), 10, 10000);
 }
 
 static int stmmac_enable(struct ptp_clock_info *ptp,
@@ -253,15 +242,26 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 			return 0;
 		}
 
-		if (on) {
-			priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
-			priv->extts_index = rq->extts.index;
-		} else {
-			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
-		}
 		netdev_dbg(priv->dev, "Auxiliary Snapshot %d %s.\n",
 			   rq->extts.index, on ? "enabled" : "disabled");
-		ret = stmmac_extts_configure(priv, rq->extts.index, on);
+
+		/* Snapshots are reported as events from when the flag is set.
+		 * Set it once the FIFO is empty, and clear it first.
+		 */
+		if (on) {
+			ret = stmmac_extts_configure(priv, rq->extts.index,
+						     true);
+			if (!ret) {
+				priv->extts_index = rq->extts.index;
+				priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
+				stmmac_aux_snapshot_irq(priv, priv, true);
+			}
+		} else {
+			stmmac_aux_snapshot_irq(priv, priv, false);
+			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+			ret = stmmac_extts_configure(priv, rq->extts.index,
+						     false);
+		}
 		mutex_unlock(&priv->aux_ts_lock);
 		break;
 	}
@@ -401,8 +401,9 @@ void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
 		return;
 
 	mutex_lock(&priv->aux_ts_lock);
-	if (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN)
-		stmmac_extts_configure(priv, priv->extts_index, true);
+	if ((priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) &&
+	    !stmmac_extts_configure(priv, priv->extts_index, true))
+		stmmac_aux_snapshot_irq(priv, priv, true);
 	mutex_unlock(&priv->aux_ts_lock);
 }
 
@@ -415,13 +416,14 @@ void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
 void stmmac_ptp_unregister(struct stmmac_priv *priv)
 {
 	if (priv->ptp_clock) {
+		/* The clock goes, and with it its enabled channel */
+		stmmac_aux_snapshot_irq(priv, priv, false);
+		priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+
 		ptp_clock_unregister(priv->ptp_clock);
 		priv->ptp_clock = NULL;
 		pr_debug("Removed PTP HW clock successfully on %s\n",
 			 priv->dev->name);
-
-		/* The clock is gone, and with it its enabled channel */
-		priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
 		mutex_destroy(&priv->aux_ts_lock);
 	}
 }

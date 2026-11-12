@@ -23,7 +23,6 @@
 #define	PTP_STSUR	0x10	/* System Time – Seconds Update Reg */
 #define	PTP_STNSUR	0x14	/* System Time – Nanoseconds Update Reg */
 #define	PTP_TAR		0x18	/* Timestamp Addend Reg */
-#define	PTP_TSR		0x20	/* Timestamp Status Reg */
 #define	PTP_ACR		0x40	/* Auxiliary Control Reg */
 #define	PTP_ATNR	0x48	/* Auxiliary Timestamp - Nanoseconds Reg */
 #define	PTP_ATSR	0x4c	/* Auxiliary Timestamp - Seconds Reg */
@@ -104,6 +103,9 @@ int dwmac1000_ptp_enable(struct ptp_clock_info *ptp,
 
 void dwmac1000_get_ptptime(void __iomem *ptpaddr, u64 *ptp_time);
 void dwmac1000_timestamp_interrupt(struct stmmac_priv *priv);
+
+void dwxgmac2_timestamp_interrupt(struct stmmac_priv *priv);
+void dwxgmac2_aux_snapshot_irq(struct stmmac_priv *priv, bool enable);
 
 extern const struct ptp_clock_info stmmac_ptp_clock_ops;
 extern const struct ptp_clock_info dwmac1000_ptp_clock_ops;

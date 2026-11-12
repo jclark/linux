@@ -611,6 +611,9 @@ struct mii_regs {
 	u32 clk_csr_mask;
 };
 
+/* TX timestamps read from the MAC and not yet collected by the TX path */
+#define STMMAC_TX_TS_NUM	4
+
 struct mac_device_info {
 	const struct stmmac_ops *mac;
 	const struct stmmac_desc_ops *desc;
@@ -644,6 +647,14 @@ struct mac_device_info {
 	 * mask/enable registers.
 	 */
 	spinlock_t irq_ctrl_lock;
+
+	/* XGMAC: serialises reads of the timestamp status register, which
+	 * clear status, and protects the TX timestamps collected by them.
+	 */
+	spinlock_t ts_status_lock;
+	u64 tx_ts[STMMAC_TX_TS_NUM];
+	unsigned int tx_ts_head;
+	unsigned int tx_ts_num;
 };
 
 struct stmmac_rx_routing {
