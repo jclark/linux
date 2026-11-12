@@ -130,6 +130,13 @@ properties:
       Should be the phandle to the emac splitter soft IP node if DWMAC
       controller is connected an emac splitter.
 
+  altr,f2h-ptp-aux-trig:
+    type: boolean
+    description:
+      The second auxiliary timestamp snapshot trigger input of the EMAC
+      (index 1, counting from 0) is driven by the FPGA fabric. Without
+      this property it is driven through the HPS I/O pin multiplexer.
+
   altr,f2h_ptp_ref_clk:
     $ref: /schemas/types.yaml#/definitions/phandle
     description:
@@ -195,6 +202,8 @@ allOf:
 
         interrupt-names:
           maxItems: 1
+
+        altr,f2h-ptp-aux-trig: false
 
         dma-coherent: false
 
