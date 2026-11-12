@@ -351,6 +351,10 @@ struct stmmac_priv {
 	rwlock_t ptp_lock;
 	/* Protects auxiliary snapshot registers from concurrent access. */
 	struct mutex aux_ts_lock;
+	/* The enabled external timestamp channel, while
+	 * STMMAC_FLAG_EXT_SNAPSHOT_EN is set.
+	 */
+	unsigned int extts_index;
 	wait_queue_head_t tstamp_busy_wait;
 
 	void __iomem *mmcaddr;
