@@ -233,10 +233,17 @@ static void timestamp_interrupt(struct stmmac_priv *priv)
 	if (!tsync_int)
 		return;
 
+	/* XGMAC enables the timestamp interrupt only while an external
+	 * timestamp channel is enabled. Otherwise leave the status alone:
+	 * the cross-timestamp of dwmac-socfpga polls it.
+	 */
+	if (!(readl(priv->ioaddr + GMAC_INT_EN) & GMAC_INT_TSIE))
+		return;
+
 	/* Read timestamp status to clear interrupt from either external
 	 * timestamp or start/end of PPS.
 	 */
-	ts_status = readl(priv->ioaddr + GMAC_TIMESTAMP_STATUS);
+	ts_status = readl(priv->ptpaddr + PTP_TSR);
 
 	if (!(priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN))
 		return;

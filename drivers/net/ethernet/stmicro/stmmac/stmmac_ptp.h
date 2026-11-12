@@ -23,6 +23,7 @@
 #define	PTP_STSUR	0x10	/* System Time – Seconds Update Reg */
 #define	PTP_STNSUR	0x14	/* System Time – Nanoseconds Update Reg */
 #define	PTP_TAR		0x18	/* Timestamp Addend Reg */
+#define	PTP_TSR		0x20	/* Timestamp Status Reg */
 #define	PTP_ACR		0x40	/* Auxiliary Control Reg */
 #define	PTP_ATNR	0x48	/* Auxiliary Timestamp - Nanoseconds Reg */
 #define	PTP_ATSR	0x4c	/* Auxiliary Timestamp - Seconds Reg */

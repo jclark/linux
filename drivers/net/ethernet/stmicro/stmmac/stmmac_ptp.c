@@ -7,6 +7,7 @@
 
   Author: Rayagond Kokatanur <rayagond@vayavyalabs.com>
 *******************************************************************************/
+#include "dwxgmac2.h"
 #include "stmmac.h"
 #include "stmmac_est.h"
 #include "stmmac_ptp.h"
@@ -196,6 +197,7 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		break;
 	}
 	case PTP_CLK_REQ_EXTTS: {
+		bool xgmac;
 		u8 channel;
 
 		mutex_lock(&priv->aux_ts_lock);
@@ -222,12 +224,21 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		}
 		netdev_dbg(priv->dev, "Auxiliary Snapshot %d %s.\n",
 			   rq->extts.index, on ? "enabled" : "disabled");
+		/* XGMAC does not enable the timestamp interrupt by default:
+		 * the cross-timestamp of dwmac-socfpga polls its status bit.
+		 */
+		xgmac = priv->plat->core_type == DWMAC_CORE_XGMAC;
+		if (xgmac && !on)
+			stmmac_mac_irq_modify(priv, XGMAC_TSIE, 0);
 		writel(acr_value, ptpaddr + PTP_ACR);
-		mutex_unlock(&priv->aux_ts_lock);
 		/* wait for auxts fifo clear to finish */
 		ret = readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
 					 !(acr_value & PTP_ACR_ATSFC),
 					 10, 10000);
+		/* The FIFO is empty now, so no earlier snapshot is reported */
+		if (xgmac && on && !ret)
+			stmmac_mac_irq_modify(priv, 0, XGMAC_TSIE);
+		mutex_unlock(&priv->aux_ts_lock);
 		break;
 	}
 
