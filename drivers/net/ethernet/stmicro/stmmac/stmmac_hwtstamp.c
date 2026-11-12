@@ -236,7 +236,7 @@ static void timestamp_interrupt(struct stmmac_priv *priv)
 	/* Read timestamp status to clear interrupt from either external
 	 * timestamp or start/end of PPS.
 	 */
-	ts_status = readl(priv->ioaddr + GMAC_TIMESTAMP_STATUS);
+	ts_status = readl(priv->ptpaddr + PTP_TSR);
 
 	if (!(priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN))
 		return;
