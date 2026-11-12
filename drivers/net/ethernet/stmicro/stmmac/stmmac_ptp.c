@@ -159,6 +159,33 @@ static int stmmac_extts_configure(struct stmmac_priv *priv, unsigned int index,
 				  !(acr_value & PTP_ACR_ATSFC), 10, 10000);
 }
 
+/* Start or stop reporting auxiliary snapshots as external timestamp events.
+ * Once this has stopped it, no snapshot is read from the FIFO or reported.
+ * Called with aux_ts_lock held.
+ */
+static void stmmac_extts_report(struct stmmac_priv *priv, unsigned int index,
+				bool on)
+{
+	unsigned long flags;
+
+	lockdep_assert_held(&priv->aux_ts_lock);
+
+	if (!on)
+		stmmac_aux_snapshot_irq(priv, priv, false);
+
+	spin_lock_irqsave(&priv->hw->ts_status_lock, flags);
+	if (on) {
+		priv->extts_index = index;
+		priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
+	} else {
+		priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+	}
+	spin_unlock_irqrestore(&priv->hw->ts_status_lock, flags);
+
+	if (on)
+		stmmac_aux_snapshot_irq(priv, priv, true);
+}
+
 static int stmmac_enable(struct ptp_clock_info *ptp,
 			 struct ptp_clock_request *rq, int on)
 {
@@ -256,12 +283,9 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 				return ret;
 			}
 
-			priv->extts_index = rq->extts.index;
-			priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
-			stmmac_aux_snapshot_irq(priv, priv, true);
+			stmmac_extts_report(priv, rq->extts.index, true);
 		} else {
-			stmmac_aux_snapshot_irq(priv, priv, false);
-			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+			stmmac_extts_report(priv, rq->extts.index, false);
 			ret = stmmac_extts_configure(priv, rq->extts.index,
 						     false);
 		}
@@ -407,12 +431,12 @@ void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
 	mutex_lock(&priv->aux_ts_lock);
 	if (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) {
 		if (!stmmac_extts_configure(priv, priv->extts_index, true)) {
-			stmmac_aux_snapshot_irq(priv, priv, true);
+			stmmac_extts_report(priv, priv->extts_index, true);
 		} else {
 			netdev_warn(priv->dev,
 				    "Auxiliary snapshot %u not enabled again\n",
 				    priv->extts_index);
-			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+			stmmac_extts_report(priv, priv->extts_index, false);
 		}
 	}
 	mutex_unlock(&priv->aux_ts_lock);
@@ -427,11 +451,19 @@ void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
 void stmmac_ptp_unregister(struct stmmac_priv *priv)
 {
 	if (priv->ptp_clock) {
-		/* The clock goes, and with it its enabled channel */
-		stmmac_aux_snapshot_irq(priv, priv, false);
-		priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+		/* The clock goes, and with it its enabled channel. Stop the
+		 * events before the clock goes, and again afterwards in case
+		 * a request enabled the channel in between.
+		 */
+		mutex_lock(&priv->aux_ts_lock);
+		stmmac_extts_report(priv, priv->extts_index, false);
+		mutex_unlock(&priv->aux_ts_lock);
 
 		ptp_clock_unregister(priv->ptp_clock);
+
+		mutex_lock(&priv->aux_ts_lock);
+		stmmac_extts_report(priv, priv->extts_index, false);
+		mutex_unlock(&priv->aux_ts_lock);
 		priv->ptp_clock = NULL;
 		pr_debug("Removed PTP HW clock successfully on %s\n",
 			 priv->dev->name);

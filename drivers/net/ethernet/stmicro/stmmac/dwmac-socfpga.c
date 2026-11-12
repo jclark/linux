@@ -503,13 +503,18 @@ static int socfpga_gen10_set_phy_mode(struct socfpga_dwmac *dwmac,
 	}
 
 	/* Take the trigger of auxiliary snapshot 1 from the FPGA fabric, or
-	 * from the HPS I/O pin multiplexer
+	 * from the HPS I/O pin multiplexer. The signals from the FPGA to the
+	 * EMAC have to be enabled for the trigger to arrive.
 	 */
 	if (dwmac->ops->has_ppstrig_sel) {
-		if (dwmac->f2h_ptp_aux_trig)
+		if (dwmac->f2h_ptp_aux_trig) {
 			ctrl |= SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
-		else
+			regmap_set_bits(sys_mgr_base_addr,
+					SYSMGR_FPGAINTF_EMAC_REG,
+					SYSMGR_FPGAINTF_EMAC_BIT << reg_shift);
+		} else {
 			ctrl &= ~SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
+		}
 	}
 
 	regmap_write(sys_mgr_base_addr, reg_offset, ctrl);
