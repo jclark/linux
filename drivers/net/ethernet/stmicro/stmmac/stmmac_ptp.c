@@ -136,31 +136,6 @@ static int stmmac_set_time(struct ptp_clock_info *ptp,
 	return 0;
 }
 
-/* Enable or disable an auxiliary snapshot, with an empty snapshot FIFO.
- * Called with aux_ts_lock held.
- */
-static int stmmac_extts_configure(struct stmmac_priv *priv, unsigned int index,
-				  bool on)
-{
-	void __iomem *ptpaddr = priv->ptpaddr;
-	u32 acr_value;
-
-	lockdep_assert_held(&priv->aux_ts_lock);
-
-	acr_value = readl(ptpaddr + PTP_ACR);
-	acr_value &= ~PTP_ACR_MASK;
-
-	/* Enable External snapshot trigger */
-	if (on)
-		acr_value |= PTP_ACR_ATSEN(index) | PTP_ACR_ATSFC;
-
-	writel(acr_value, ptpaddr + PTP_ACR);
-
-	/* wait for auxts fifo clear to finish */
-	return readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
-				  !(acr_value & PTP_ACR_ATSFC), 10, 10000);
-}
-
 /* Start or stop reporting auxiliary snapshots as external timestamp events.
  * On XGMAC, whose reporting code holds ts_status_lock, no snapshot is read
  * from the FIFO or reported once this has stopped it. Called with aux_ts_lock
@@ -187,6 +162,49 @@ static void stmmac_extts_report(struct stmmac_priv *priv, unsigned int index,
 
 	if (on)
 		stmmac_aux_snapshot_irq(priv, priv, true);
+}
+
+/* Enable or disable an auxiliary snapshot. Called with aux_ts_lock held.
+ *
+ * The order matters. Nothing may read the FIFO while it is cleared, so stop
+ * the reporting first. Clear the FIFO with every channel disabled, start the
+ * reporting, and only then enable the channel: no snapshot can then be taken
+ * before it would be reported.
+ */
+static int stmmac_extts_set(struct stmmac_priv *priv, unsigned int index,
+			    bool on)
+{
+	void __iomem *ptpaddr = priv->ptpaddr;
+	u32 acr_value;
+	int ret;
+
+	lockdep_assert_held(&priv->aux_ts_lock);
+
+	stmmac_extts_report(priv, index, false);
+
+	acr_value = readl(ptpaddr + PTP_ACR);
+	acr_value &= ~PTP_ACR_MASK;
+	if (on)
+		acr_value |= PTP_ACR_ATSFC;
+	writel(acr_value, ptpaddr + PTP_ACR);
+
+	if (!on)
+		return 0;
+
+	/* wait for auxts fifo clear to finish */
+	ret = readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
+				 !(acr_value & PTP_ACR_ATSFC), 10, 10000);
+	if (ret)
+		return ret;
+
+	stmmac_extts_report(priv, index, true);
+
+	/* Enable External snapshot trigger */
+	acr_value = readl(ptpaddr + PTP_ACR);
+	acr_value |= PTP_ACR_ATSEN(index);
+	writel(acr_value, ptpaddr + PTP_ACR);
+
+	return 0;
 }
 
 static int stmmac_enable(struct ptp_clock_info *ptp,
@@ -251,6 +269,12 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 	case PTP_CLK_REQ_EXTTS: {
 		bool enabled;
 
+		/* The clock is visible to user space before
+		 * ptp_clock_register() returns, and events need the clock.
+		 */
+		if (!READ_ONCE(priv->ptp_clock))
+			return -EBUSY;
+
 		mutex_lock(&priv->aux_ts_lock);
 		enabled = priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN;
 
@@ -275,26 +299,9 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 			return 0;
 		}
 
-		netdev_dbg(priv->dev, "Auxiliary Snapshot %d %s.\n",
+		netdev_dbg(priv->dev, "Auxiliary Snapshot %u %s.\n",
 			   rq->extts.index, on ? "enabled" : "disabled");
-
-		/* Snapshots are reported as events from when the flag is set.
-		 * Set it once the FIFO is empty, and clear it first.
-		 */
-		if (on) {
-			ret = stmmac_extts_configure(priv, rq->extts.index,
-						     true);
-			if (ret) {
-				mutex_unlock(&priv->aux_ts_lock);
-				return ret;
-			}
-
-			stmmac_extts_report(priv, rq->extts.index, true);
-		} else {
-			stmmac_extts_report(priv, rq->extts.index, false);
-			ret = stmmac_extts_configure(priv, rq->extts.index,
-						     false);
-		}
+		ret = stmmac_extts_set(priv, rq->extts.index, on);
 		mutex_unlock(&priv->aux_ts_lock);
 		break;
 	}
@@ -376,6 +383,7 @@ const struct ptp_clock_info dwmac1000_ptp_clock_ops = {
 void stmmac_ptp_register(struct stmmac_priv *priv)
 {
 	unsigned int pps_out_num = priv->dma_cap.pps_out_num;
+	struct ptp_clock *ptp_clock;
 	unsigned int n_ext_ts;
 
 	if (pps_out_num > STMMAC_PPS_MAX) {
@@ -408,12 +416,15 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 
 	mutex_init(&priv->aux_ts_lock);
 
-	priv->ptp_clock = ptp_clock_register(&priv->ptp_clock_ops,
-					     priv->device);
-	if (IS_ERR(priv->ptp_clock)) {
+	/* The clock is visible to user space before ptp_clock_register()
+	 * returns. Never let it see an error pointer.
+	 */
+	ptp_clock = ptp_clock_register(&priv->ptp_clock_ops, priv->device);
+	if (IS_ERR(ptp_clock)) {
 		netdev_err(priv->dev, "ptp_clock_register failed\n");
-		priv->ptp_clock = NULL;
+		ptp_clock = NULL;
 	}
+	WRITE_ONCE(priv->ptp_clock, ptp_clock);
 
 	if (priv->ptp_clock)
 		netdev_info(priv->dev, "registered PTP clock\n");
@@ -435,16 +446,11 @@ void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
 		return;
 
 	mutex_lock(&priv->aux_ts_lock);
-	if (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) {
-		/* Nothing may read the FIFO while it is cleared */
-		stmmac_extts_report(priv, priv->extts_index, false);
-		if (!stmmac_extts_configure(priv, priv->extts_index, true))
-			stmmac_extts_report(priv, priv->extts_index, true);
-		else
-			netdev_warn(priv->dev,
-				    "Auxiliary snapshot %u not enabled again\n",
-				    priv->extts_index);
-	}
+	if ((priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) &&
+	    stmmac_extts_set(priv, priv->extts_index, true))
+		netdev_warn(priv->dev,
+			    "Auxiliary snapshot %u not enabled again\n",
+			    priv->extts_index);
 	mutex_unlock(&priv->aux_ts_lock);
 }
 
