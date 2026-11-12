@@ -57,6 +57,8 @@
 	phy-mode = "rgmii";
 	phy-handle = <&emac0_phy0>;
 	max-frame-size = <9000>;
+	/* emac0_ptp_aux_tx_trig_i is driven by the FPGA design */
+	altr,f2h-ptp-aux-trig;
 
 	mdio0 {
 		#address-cells = <1>;
