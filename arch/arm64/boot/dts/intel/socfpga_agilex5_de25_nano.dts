@@ -10,6 +10,7 @@
 
 	aliases {
 		serial0 = &uart1;
+		serial1 = &uart0;
 		ethernet0 = &gmac0;
 	};
 
