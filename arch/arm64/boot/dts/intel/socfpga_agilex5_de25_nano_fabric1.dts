@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Terasic DE25-Nano with an FPGA design that connects HPS peripherals
+ * through the fabric:
+ *
+ *   I2C0       to the board's I2C bus with the fan controller and the
+ *              HDMI transmitter
+ *   I2C_EMAC0  to GPIO 0 header JP1 pins 35 (SCL) and 36 (SDA)
+ *   SPI master 0 to JP1 pins 37 to 40
+ *
+ * Use it only when that design is loaded. The EMAC0 PTP trigger and UART0,
+ * which the same design connects, are in the base file.
+ */
+#include <dt-bindings/pwm/pwm.h>
+#include "socfpga_agilex5_de25_nano.dts"
+
+&i2c0 {
+	status = "okay";
+
+	fan_controller: fan-controller@2e {
+		compatible = "ti,amc6821";
+		reg = <0x2e>;
+		#pwm-cells = <2>;
+
+		fan {
+			pwms = <&fan_controller 40000 PWM_POLARITY_INVERTED>;
+		};
+	};
+};
+
+&i2c2 {
+	status = "okay";
+};
+
+&spi0 {
+	status = "okay";
+};
