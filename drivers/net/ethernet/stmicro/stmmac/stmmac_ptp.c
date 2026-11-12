@@ -451,22 +451,29 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 /**
  * stmmac_ptp_restore_extts - enable the external timestamp channel again
  * @priv: driver private structure
+ * @restore: the PTP clock works, so the channel can be enabled
  * Description: a reset of the MAC, as on resume, disables the auxiliary
  * snapshot and, on XGMAC, the timestamp interrupt. Enable them again if an
- * external timestamp channel was enabled.
+ * external timestamp channel was enabled, or forget the channel if that is
+ * not possible.
  */
-void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
+void stmmac_ptp_restore_extts(struct stmmac_priv *priv, bool restore)
 {
 	/* Only for the cores whose channels stmmac_enable() enables */
 	if (!priv->ptp_clock || priv->ptp_clock_ops.enable != stmmac_enable)
 		return;
 
 	mutex_lock(&priv->aux_ts_lock);
-	if ((priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) &&
-	    stmmac_extts_set(priv, priv->extts_index, true))
-		netdev_warn(priv->dev,
-			    "Auxiliary snapshot %u not enabled again\n",
-			    priv->extts_index);
+	if (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) {
+		if (!restore)
+			stmmac_extts_report(priv, priv->extts_index, false);
+
+		if (!restore ||
+		    stmmac_extts_set(priv, priv->extts_index, true))
+			netdev_warn(priv->dev,
+				    "Auxiliary snapshot %u not enabled again\n",
+				    priv->extts_index);
+	}
 	mutex_unlock(&priv->aux_ts_lock);
 }
 
