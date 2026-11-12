@@ -162,8 +162,9 @@ static int stmmac_extts_configure(struct stmmac_priv *priv, unsigned int index,
 }
 
 /* Start or stop reporting auxiliary snapshots as external timestamp events.
- * Once this has stopped it, no snapshot is read from the FIFO or reported.
- * Called with aux_ts_lock held.
+ * On XGMAC, whose reporting code holds ts_status_lock, no snapshot is read
+ * from the FIFO or reported once this has stopped it. Called with aux_ts_lock
+ * held.
  */
 static void stmmac_extts_report(struct stmmac_priv *priv, unsigned int index,
 				bool on)
@@ -259,14 +260,17 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		 */
 		if (on && enabled && priv->extts_index != rq->extts.index) {
 			netdev_err(priv->dev,
-				   "Cannot enable auxiliary snapshot %d as auxiliary snapshot %d is already enabled",
+				   "Cannot enable auxiliary snapshot %u as auxiliary snapshot %u is already enabled\n",
 				   rq->extts.index, priv->extts_index);
 			mutex_unlock(&priv->aux_ts_lock);
 			return -EBUSY;
 		}
 
-		/* Disabling a channel that is not enabled changes nothing */
-		if (!on && (!enabled || priv->extts_index != rq->extts.index)) {
+		/* Enabling the channel that is enabled, or disabling one that
+		 * is not, changes nothing.
+		 */
+		if (on ? enabled :
+		    (!enabled || priv->extts_index != rq->extts.index)) {
 			mutex_unlock(&priv->aux_ts_lock);
 			return 0;
 		}
@@ -432,14 +436,14 @@ void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
 
 	mutex_lock(&priv->aux_ts_lock);
 	if (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) {
-		if (!stmmac_extts_configure(priv, priv->extts_index, true)) {
+		/* Nothing may read the FIFO while it is cleared */
+		stmmac_extts_report(priv, priv->extts_index, false);
+		if (!stmmac_extts_configure(priv, priv->extts_index, true))
 			stmmac_extts_report(priv, priv->extts_index, true);
-		} else {
+		else
 			netdev_warn(priv->dev,
 				    "Auxiliary snapshot %u not enabled again\n",
 				    priv->extts_index);
-			stmmac_extts_report(priv, priv->extts_index, false);
-		}
 	}
 	mutex_unlock(&priv->aux_ts_lock);
 }

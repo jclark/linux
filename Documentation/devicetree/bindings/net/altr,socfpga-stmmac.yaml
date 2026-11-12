@@ -133,11 +133,9 @@ properties:
   altr,f2h-ptp-aux-trig:
     type: boolean
     description:
-      The trigger for auxiliary timestamp snapshot 1 of the EMAC comes
-      from the FPGA fabric. Without this property it comes from the HPS
-      I/O pin multiplexer. The signals from the FPGA fabric to the EMAC
-      are enabled for it, so the FPGA has to be configured before the
-      EMAC is probed.
+      The second auxiliary timestamp snapshot trigger input of the EMAC
+      (index 1, counting from 0) is driven by the FPGA fabric. Without
+      this property it is driven through the HPS I/O pin multiplexer.
 
   altr,f2h_ptp_ref_clk:
     $ref: /schemas/types.yaml#/definitions/phandle
