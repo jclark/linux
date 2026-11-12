@@ -648,8 +648,10 @@ struct mac_device_info {
 	 */
 	spinlock_t irq_ctrl_lock;
 
-	/* XGMAC: serialises reads of the timestamp status register, which
-	 * clear status, and protects the TX timestamps collected by them.
+	/* Protects STMMAC_FLAG_EXT_SNAPSHOT_EN and the enabled channel against
+	 * the code that reports auxiliary snapshots. On XGMAC it also
+	 * serialises the reads of the timestamp status register that clear
+	 * status, and protects the TX timestamps collected by them.
 	 */
 	spinlock_t ts_status_lock;
 	u64 tx_ts[STMMAC_TX_TS_NUM];

@@ -19,6 +19,7 @@ static void dwxgmac2_core_init(struct mac_device_info *hw,
 			       struct net_device *dev)
 {
 	void __iomem *ioaddr = hw->pcsr;
+	unsigned long flags;
 	u32 tx, rx;
 
 	tx = readl(ioaddr + XGMAC_TX_CONFIG);
@@ -27,6 +28,12 @@ static void dwxgmac2_core_init(struct mac_device_info *hw,
 	writel(tx | XGMAC_CORE_INIT_TX, ioaddr + XGMAC_TX_CONFIG);
 	writel(rx | XGMAC_CORE_INIT_RX, ioaddr + XGMAC_RX_CONFIG);
 	writel(XGMAC_INT_DEFAULT_EN, ioaddr + XGMAC_INT_EN);
+
+	/* The packets of any TX timestamps still queued are gone */
+	spin_lock_irqsave(&hw->ts_status_lock, flags);
+	hw->tx_ts_head = 0;
+	hw->tx_ts_num = 0;
+	spin_unlock_irqrestore(&hw->ts_status_lock, flags);
 }
 
 static void dwxgmac2_irq_modify(struct mac_device_info *hw, u32 disable,
@@ -1143,7 +1150,10 @@ re_enable:
 
 /* Read the timestamp status register and deal with everything that the read
  * reports. Reading it clears the auxiliary snapshot status and with it the
- * timestamp interrupt, so every reader has to come through here. Called with
+ * timestamp interrupt, so every reader that depends on those has to come
+ * through here. smtg_crosststamp() in dwmac-socfpga reads the register
+ * directly: it runs only while no external timestamp channel is enabled, and
+ * uses only the snapshot count, which a read does not clear. Called with
  * ts_status_lock held.
  */
 static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
@@ -1220,8 +1230,19 @@ void dwxgmac2_timestamp_interrupt(struct stmmac_priv *priv)
  */
 void dwxgmac2_aux_snapshot_irq(struct stmmac_priv *priv, bool enable)
 {
+	unsigned long flags;
+
 	stmmac_mac_irq_modify(priv, enable ? 0 : XGMAC_TSIE,
 			      enable ? XGMAC_TSIE : 0);
+	if (!enable)
+		return;
+
+	/* The TX path may have read the status of a snapshot taken since the
+	 * channel was enabled, and so cleared its interrupt. Report it now.
+	 */
+	spin_lock_irqsave(&priv->hw->ts_status_lock, flags);
+	dwxgmac2_timestamp_status(priv);
+	spin_unlock_irqrestore(&priv->hw->ts_status_lock, flags);
 }
 
 static int dwxgmac2_get_mac_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
