@@ -135,16 +135,47 @@ static int stmmac_set_time(struct ptp_clock_info *ptp,
 	return 0;
 }
 
+/* Enable or disable an auxiliary snapshot. Called with aux_ts_lock held. */
+static int stmmac_extts_configure(struct stmmac_priv *priv, unsigned int index,
+				  bool on)
+{
+	bool xgmac = priv->plat->core_type == DWMAC_CORE_XGMAC;
+	void __iomem *ptpaddr = priv->ptpaddr;
+	u32 acr_value;
+	int ret;
+
+	acr_value = readl(ptpaddr + PTP_ACR);
+	acr_value &= ~PTP_ACR_MASK;
+
+	/* Enable External snapshot trigger */
+	if (on)
+		acr_value |= PTP_ACR_ATSEN(index) | PTP_ACR_ATSFC;
+
+	/* XGMAC does not enable the timestamp interrupt by default:
+	 * the cross-timestamp of dwmac-socfpga polls its status bit.
+	 */
+	if (xgmac && !on)
+		stmmac_mac_irq_modify(priv, XGMAC_TSIE, 0);
+	writel(acr_value, ptpaddr + PTP_ACR);
+	/* wait for auxts fifo clear to finish */
+	ret = readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
+				 !(acr_value & PTP_ACR_ATSFC),
+				 10, 10000);
+	/* The FIFO is empty now, so no earlier snapshot is reported */
+	if (xgmac && on && !ret)
+		stmmac_mac_irq_modify(priv, 0, XGMAC_TSIE);
+
+	return ret;
+}
+
 static int stmmac_enable(struct ptp_clock_info *ptp,
 			 struct ptp_clock_request *rq, int on)
 {
 	struct stmmac_priv *priv =
 	    container_of(ptp, struct stmmac_priv, ptp_clock_ops);
-	void __iomem *ptpaddr = priv->ptpaddr;
 	struct stmmac_pps_cfg *cfg;
 	int ret = -EOPNOTSUPP;
 	unsigned long flags;
-	u32 acr_value;
 
 	switch (rq->type) {
 	case PTP_CLK_REQ_PEROUT: {
@@ -197,7 +228,7 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		break;
 	}
 	case PTP_CLK_REQ_EXTTS: {
-		bool enabled, xgmac;
+		bool enabled;
 
 		mutex_lock(&priv->aux_ts_lock);
 		enabled = priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN;
@@ -220,35 +251,15 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 			return 0;
 		}
 
-		acr_value = readl(ptpaddr + PTP_ACR);
-		acr_value &= ~PTP_ACR_MASK;
-
 		if (on) {
 			priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
 			priv->extts_index = rq->extts.index;
-
-			/* Enable External snapshot trigger */
-			acr_value |= PTP_ACR_ATSEN(rq->extts.index);
-			acr_value |= PTP_ACR_ATSFC;
 		} else {
 			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
 		}
 		netdev_dbg(priv->dev, "Auxiliary Snapshot %d %s.\n",
 			   rq->extts.index, on ? "enabled" : "disabled");
-		/* XGMAC does not enable the timestamp interrupt by default:
-		 * the cross-timestamp of dwmac-socfpga polls its status bit.
-		 */
-		xgmac = priv->plat->core_type == DWMAC_CORE_XGMAC;
-		if (xgmac && !on)
-			stmmac_mac_irq_modify(priv, XGMAC_TSIE, 0);
-		writel(acr_value, ptpaddr + PTP_ACR);
-		/* wait for auxts fifo clear to finish */
-		ret = readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
-					 !(acr_value & PTP_ACR_ATSFC),
-					 10, 10000);
-		/* The FIFO is empty now, so no earlier snapshot is reported */
-		if (xgmac && on && !ret)
-			stmmac_mac_irq_modify(priv, 0, XGMAC_TSIE);
+		ret = stmmac_extts_configure(priv, rq->extts.index, on);
 		mutex_unlock(&priv->aux_ts_lock);
 		break;
 	}
@@ -376,6 +387,24 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 }
 
 /**
+ * stmmac_ptp_restore_extts - enable the external timestamp channel again
+ * @priv: driver private structure
+ * Description: a reset of the MAC, as on resume, disables the auxiliary
+ * snapshot and, on XGMAC, the timestamp interrupt. Enable them again if an
+ * external timestamp channel was enabled.
+ */
+void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
+{
+	if (!priv->ptp_clock)
+		return;
+
+	mutex_lock(&priv->aux_ts_lock);
+	if (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN)
+		stmmac_extts_configure(priv, priv->extts_index, true);
+	mutex_unlock(&priv->aux_ts_lock);
+}
+
+/**
  * stmmac_ptp_unregister
  * @priv: driver private structure
  * Description: this function will remove/unregister the ptp clock driver
@@ -389,6 +418,8 @@ void stmmac_ptp_unregister(struct stmmac_priv *priv)
 		pr_debug("Removed PTP HW clock successfully on %s\n",
 			 priv->dev->name);
 
+		/* The clock is gone, and with it its enabled channel */
+		priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
 		mutex_destroy(&priv->aux_ts_lock);
 	}
 }

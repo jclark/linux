@@ -8640,6 +8640,8 @@ int stmmac_resume(struct device *dev)
 		if (ret)
 			goto error_stop_dma;
 
+		stmmac_ptp_restore_extts(priv);
+
 		ret = stmmac_setup_est(priv);
 		if (ret)
 			goto error_stop_dma;
