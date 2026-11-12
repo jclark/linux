@@ -7,6 +7,7 @@
 
   Author: Rayagond Kokatanur <rayagond@vayavyalabs.com>
 *******************************************************************************/
+#include "dwxgmac2.h"
 #include "stmmac.h"
 #include "stmmac_est.h"
 #include "stmmac_ptp.h"
@@ -223,6 +224,13 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		netdev_dbg(priv->dev, "Auxiliary Snapshot %d %s.\n",
 			   rq->extts.index, on ? "enabled" : "disabled");
 		writel(acr_value, ptpaddr + PTP_ACR);
+
+		/* XGMAC does not enable the timestamp interrupt by default:
+		 * the cross-timestamp of dwmac-socfpga polls its status bit.
+		 */
+		if (priv->plat->core_type == DWMAC_CORE_XGMAC)
+			stmmac_mac_irq_modify(priv, on ? 0 : XGMAC_TSIE,
+					      on ? XGMAC_TSIE : 0);
 		mutex_unlock(&priv->aux_ts_lock);
 		/* wait for auxts fifo clear to finish */
 		ret = readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
