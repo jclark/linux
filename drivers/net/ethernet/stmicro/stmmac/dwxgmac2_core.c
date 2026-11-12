@@ -29,10 +29,9 @@ static void dwxgmac2_core_init(struct mac_device_info *hw,
 	writel(rx | XGMAC_CORE_INIT_RX, ioaddr + XGMAC_RX_CONFIG);
 	writel(XGMAC_INT_DEFAULT_EN, ioaddr + XGMAC_INT_EN);
 
-	/* The packets of any TX timestamps still queued are gone */
+	/* The packet of a TX timestamp that is still held is gone */
 	spin_lock_irqsave(&hw->ts_status_lock, flags);
-	hw->tx_ts_head = 0;
-	hw->tx_ts_num = 0;
+	hw->tx_ts_valid = false;
 	spin_unlock_irqrestore(&hw->ts_status_lock, flags);
 }
 
@@ -1170,21 +1169,17 @@ static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
 	status = readl(ioaddr + XGMAC_TIMESTAMP_STATUS);
 
 	/* Reading the TX timestamp clears XGMAC_TXTSC, which also asserts the
-	 * timestamp interrupt. Keep it for dwxgmac2_get_mac_tx_timestamp().
+	 * timestamp interrupt. Hold it for dwxgmac2_get_mac_tx_timestamp().
+	 * Like the MAC, hold one: until it is collected, a later one is lost.
 	 */
 	if (status & XGMAC_TXTSC) {
 		ts = readl(ioaddr + XGMAC_TXTIMESTAMP_NSEC) & XGMAC_TXTSSTSLO;
 		ts += readl(ioaddr + XGMAC_TXTIMESTAMP_SEC) * 1000000000ULL;
 
-		/* Nobody collected the oldest one: drop it */
-		if (hw->tx_ts_num == STMMAC_TX_TS_NUM) {
-			hw->tx_ts_head++;
-			hw->tx_ts_head %= STMMAC_TX_TS_NUM;
-			hw->tx_ts_num--;
+		if (!hw->tx_ts_valid) {
+			hw->tx_ts = ts;
+			hw->tx_ts_valid = true;
 		}
-		i = (hw->tx_ts_head + hw->tx_ts_num) % STMMAC_TX_TS_NUM;
-		hw->tx_ts[i] = ts;
-		hw->tx_ts_num++;
 	}
 
 	/* Without an external timestamp channel, the snapshots in the FIFO
@@ -1258,11 +1253,9 @@ static int dwxgmac2_get_mac_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
 	for (i = 0; i <= 100; i++) {
 		spin_lock_irqsave(&hw->ts_status_lock, flags);
 		dwxgmac2_timestamp_status(priv);
-		if (hw->tx_ts_num) {
-			*ts = hw->tx_ts[hw->tx_ts_head];
-			hw->tx_ts_head++;
-			hw->tx_ts_head %= STMMAC_TX_TS_NUM;
-			hw->tx_ts_num--;
+		if (hw->tx_ts_valid) {
+			*ts = hw->tx_ts;
+			hw->tx_ts_valid = false;
 			found = true;
 		}
 		spin_unlock_irqrestore(&hw->ts_status_lock, flags);
