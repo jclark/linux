@@ -28,6 +28,7 @@
 #define SYSMGR_EMACGRP_CTRL_PHYSEL_MASK 0x00000003
 #define SYSMGR_EMACGRP_CTRL_PTP_REF_CLK_MASK 0x00000010
 #define SYSMGR_GEN10_EMACGRP_CTRL_PTP_REF_CLK_MASK 0x00000100
+#define SYSMGR_AGILEX5_TSN_PPSTRIG_SEL BIT(4)
 
 #define SYSMGR_FPGAGRP_MODULE_REG  0x00000028
 #define SYSMGR_FPGAGRP_MODULE_EMAC 0x00000004
@@ -69,6 +70,7 @@ struct socfpga_dwmac {
 	void __iomem *tse_pcs_base;
 	void __iomem *sgmii_adapter_base;
 	bool f2h_ptp_ref_clk;
+	bool f2h_ptp_aux_trig;
 	const struct socfpga_dwmac_ops *ops;
 };
 
@@ -154,6 +156,9 @@ static int socfpga_dwmac_parse_data(struct socfpga_dwmac *dwmac, struct device *
 	}
 
 	dwmac->f2h_ptp_ref_clk = of_property_read_bool(np, "altr,f2h_ptp_ref_clk");
+	dwmac->f2h_ptp_aux_trig =
+		of_device_is_compatible(np, "altr,socfpga-stmmac-agilex5") &&
+		of_property_read_bool(np, "altr,f2h-ptp-aux-trig");
 
 	np_splitter = of_parse_phandle(np, "altr,emac-splitter", 0);
 	if (np_splitter) {
@@ -486,6 +491,10 @@ static int socfpga_gen10_set_phy_mode(struct socfpga_dwmac *dwmac,
 	} else {
 		ctrl &= ~SYSMGR_GEN10_EMACGRP_CTRL_PTP_REF_CLK_MASK;
 	}
+
+	/* Take the trigger of auxiliary snapshot 1 from the FPGA fabric */
+	if (dwmac->f2h_ptp_aux_trig)
+		ctrl |= SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
 
 	regmap_write(sys_mgr_base_addr, reg_offset, ctrl);
 
