@@ -72,4 +72,17 @@ config MUX_MMIO
 
 endmenu
 
+config MUX_TI_K3_EVENT
+	tristate "TI K3 event mux router"
+	depends on ARCH_K3 || COMPILE_TEST
+	depends on OF
+	select REGMAP_MMIO
+	help
+	  Event mux routers on TI K3 SoCs, such as the Time Sync Router.
+	  Each router output is a mux control whose states are the router
+	  inputs. Consumers select a route with mux-states.
+
+	  To compile the driver as a module, choose M here: the module will
+	  be called ti-k3-event-mux.
+
 endif # MULTIPLEXER
