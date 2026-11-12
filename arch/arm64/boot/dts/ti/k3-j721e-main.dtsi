@@ -201,6 +201,12 @@
 		ti,interrupt-ranges = <8 392 56>;
 	};
 
+	timesync_router: mux-controller@a40000 {
+		compatible = "ti,j721e-timesync-router";
+		reg = <0x00 0x00a40000 0x00 0x800>;
+		#mux-state-cells = <2>;
+	};
+
 	main_navss: bus@30000000 {
 		compatible = "simple-bus";
 		#address-cells = <2>;
