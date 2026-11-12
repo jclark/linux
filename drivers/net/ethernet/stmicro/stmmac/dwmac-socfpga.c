@@ -57,6 +57,8 @@ struct socfpga_dwmac_ops {
 	int (*set_phy_mode)(struct socfpga_dwmac *dwmac_priv,
 			    struct device *dev);
 	void (*setup_plat_dat)(struct socfpga_dwmac *dwmac_priv);
+	/* The control register has the ppstrig_sel bit */
+	bool has_ppstrig_sel;
 };
 
 struct socfpga_dwmac {
@@ -157,7 +159,6 @@ static int socfpga_dwmac_parse_data(struct socfpga_dwmac *dwmac, struct device *
 
 	dwmac->f2h_ptp_ref_clk = of_property_read_bool(np, "altr,f2h_ptp_ref_clk");
 	dwmac->f2h_ptp_aux_trig =
-		of_device_is_compatible(np, "altr,socfpga-stmmac-agilex5") &&
 		of_property_read_bool(np, "altr,f2h-ptp-aux-trig");
 
 	np_splitter = of_parse_phandle(np, "altr,emac-splitter", 0);
@@ -501,9 +502,15 @@ static int socfpga_gen10_set_phy_mode(struct socfpga_dwmac *dwmac,
 		ctrl &= ~SYSMGR_GEN10_EMACGRP_CTRL_PTP_REF_CLK_MASK;
 	}
 
-	/* Take the trigger of auxiliary snapshot 1 from the FPGA fabric */
-	if (dwmac->f2h_ptp_aux_trig)
-		ctrl |= SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
+	/* Take the trigger of auxiliary snapshot 1 from the FPGA fabric, or
+	 * from the HPS I/O pin multiplexer
+	 */
+	if (dwmac->ops->has_ppstrig_sel) {
+		if (dwmac->f2h_ptp_aux_trig)
+			ctrl |= SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
+		else
+			ctrl &= ~SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
+	}
 
 	regmap_write(sys_mgr_base_addr, reg_offset, ctrl);
 
@@ -726,6 +733,7 @@ static const struct socfpga_dwmac_ops socfpga_gen10_ops = {
 static const struct socfpga_dwmac_ops socfpga_agilex5_ops = {
 	.set_phy_mode = socfpga_gen10_set_phy_mode,
 	.setup_plat_dat = socfpga_agilex5_setup_plat_dat,
+	.has_ppstrig_sel = true,
 };
 
 static const struct of_device_id socfpga_dwmac_match[] = {

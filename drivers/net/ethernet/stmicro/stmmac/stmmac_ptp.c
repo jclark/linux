@@ -143,6 +143,8 @@ static int stmmac_extts_configure(struct stmmac_priv *priv, unsigned int index,
 	void __iomem *ptpaddr = priv->ptpaddr;
 	u32 acr_value;
 
+	lockdep_assert_held(&priv->aux_ts_lock);
+
 	acr_value = readl(ptpaddr + PTP_ACR);
 	acr_value &= ~PTP_ACR_MASK;
 
@@ -398,13 +400,21 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
  */
 void stmmac_ptp_restore_extts(struct stmmac_priv *priv)
 {
-	if (!priv->ptp_clock)
+	/* Only for the cores whose channels stmmac_enable() enables */
+	if (!priv->ptp_clock || priv->ptp_clock_ops.enable != stmmac_enable)
 		return;
 
 	mutex_lock(&priv->aux_ts_lock);
-	if ((priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) &&
-	    !stmmac_extts_configure(priv, priv->extts_index, true))
-		stmmac_aux_snapshot_irq(priv, priv, true);
+	if (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) {
+		if (!stmmac_extts_configure(priv, priv->extts_index, true)) {
+			stmmac_aux_snapshot_irq(priv, priv, true);
+		} else {
+			netdev_warn(priv->dev,
+				    "Auxiliary snapshot %u not enabled again\n",
+				    priv->extts_index);
+			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
+		}
+	}
 	mutex_unlock(&priv->aux_ts_lock);
 }
 
