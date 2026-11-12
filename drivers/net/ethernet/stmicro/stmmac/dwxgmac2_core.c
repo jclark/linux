@@ -1168,7 +1168,8 @@ static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
 
 		/* Nobody collected the oldest one: drop it */
 		if (hw->tx_ts_num == STMMAC_TX_TS_NUM) {
-			hw->tx_ts_head = (hw->tx_ts_head + 1) % STMMAC_TX_TS_NUM;
+			hw->tx_ts_head++;
+			hw->tx_ts_head %= STMMAC_TX_TS_NUM;
 			hw->tx_ts_num--;
 		}
 		i = (hw->tx_ts_head + hw->tx_ts_num) % STMMAC_TX_TS_NUM;
@@ -1238,7 +1239,8 @@ static int dwxgmac2_get_mac_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
 		dwxgmac2_timestamp_status(priv);
 		if (hw->tx_ts_num) {
 			*ts = hw->tx_ts[hw->tx_ts_head];
-			hw->tx_ts_head = (hw->tx_ts_head + 1) % STMMAC_TX_TS_NUM;
+			hw->tx_ts_head++;
+			hw->tx_ts_head %= STMMAC_TX_TS_NUM;
 			hw->tx_ts_num--;
 			found = true;
 		}

@@ -249,11 +249,14 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		if (on) {
 			ret = stmmac_extts_configure(priv, rq->extts.index,
 						     true);
-			if (!ret) {
-				priv->extts_index = rq->extts.index;
-				priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
-				stmmac_aux_snapshot_irq(priv, priv, true);
+			if (ret) {
+				mutex_unlock(&priv->aux_ts_lock);
+				return ret;
 			}
+
+			priv->extts_index = rq->extts.index;
+			priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
+			stmmac_aux_snapshot_irq(priv, priv, true);
 		} else {
 			stmmac_aux_snapshot_irq(priv, priv, false);
 			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
