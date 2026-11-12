@@ -3801,6 +3801,8 @@ static void stmmac_free_irq(struct net_device *dev,
 	struct stmmac_msi *msi = priv->msi;
 	int j;
 
+	stmmac_ptp_mac_irq_ready(priv, false);
+
 	switch (irq_err) {
 	case REQ_IRQ_ERR_ALL:
 		irq_idx = priv->plat->tx_queues_to_use;
@@ -4081,6 +4083,9 @@ static int stmmac_request_irq(struct net_device *dev)
 		ret = stmmac_request_irq_multi_msi(dev);
 	else
 		ret = stmmac_request_irq_single(dev);
+
+	if (!ret)
+		stmmac_ptp_mac_irq_ready(priv, true);
 
 	return ret;
 }

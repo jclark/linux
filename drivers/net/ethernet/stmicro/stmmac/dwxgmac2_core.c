@@ -1230,30 +1230,34 @@ void dwxgmac2_aux_snapshot_irq(struct stmmac_priv *priv, bool enable)
 			      enable ? XGMAC_TSIE : 0);
 }
 
-static int dwxgmac2_get_mac_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
+/* Take the TX timestamp, if there is one */
+static bool dwxgmac2_take_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
 {
 	struct mac_device_info *hw = priv->hw;
 	unsigned long flags;
-	bool found = false;
-	int i;
+	bool found;
 
-	/* Wait up to 10 ms for the timestamp, as before */
-	for (i = 0; i <= 100; i++) {
-		spin_lock_irqsave(&hw->ts_status_lock, flags);
-		dwxgmac2_timestamp_status(priv);
-		if (hw->tx_ts_valid) {
-			*ts = hw->tx_ts;
-			hw->tx_ts_valid = false;
-			found = true;
-		}
-		spin_unlock_irqrestore(&hw->ts_status_lock, flags);
-		if (found)
-			return 0;
-
-		udelay(100);
+	spin_lock_irqsave(&hw->ts_status_lock, flags);
+	dwxgmac2_timestamp_status(priv);
+	found = hw->tx_ts_valid;
+	if (found) {
+		*ts = hw->tx_ts;
+		hw->tx_ts_valid = false;
 	}
+	spin_unlock_irqrestore(&hw->ts_status_lock, flags);
 
-	return -EBUSY;
+	return found;
+}
+
+static int dwxgmac2_get_mac_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
+{
+	bool found;
+
+	if (read_poll_timeout_atomic(dwxgmac2_take_tx_timestamp, found, found,
+				     100, 10000, false, priv, ts))
+		return -EBUSY;
+
+	return 0;
 }
 
 static int dwxgmac2_flex_pps_config(void __iomem *ioaddr, int index,
