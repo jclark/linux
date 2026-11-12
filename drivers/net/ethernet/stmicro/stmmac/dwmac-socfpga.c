@@ -468,8 +468,7 @@ static int socfpga_gen10_set_phy_mode(struct socfpga_dwmac *dwmac,
 	phy_interface_t phymode = socfpga_get_plat_phymode(dwmac);
 	u32 reg_offset = dwmac->reg_offset;
 	u32 reg_shift = dwmac->reg_shift;
-	bool fpga_intf;
-	u32 ctrl, val;
+	u32 ctrl, val, module;
 
 	if (socfpga_set_phy_mode_common(phymode, &val))
 		return -EINVAL;
@@ -489,32 +488,29 @@ static int socfpga_gen10_set_phy_mode(struct socfpga_dwmac *dwmac,
 	ctrl &= ~(SYSMGR_EMACGRP_CTRL_PHYSEL_MASK);
 	ctrl |= val;
 
-	fpga_intf = dwmac->f2h_ptp_ref_clk ||
-		    phymode == PHY_INTERFACE_MODE_MII ||
-		    phymode == PHY_INTERFACE_MODE_GMII ||
-		    phymode == PHY_INTERFACE_MODE_SGMII;
-
-	if (fpga_intf)
+	if (dwmac->f2h_ptp_ref_clk ||
+	    phymode == PHY_INTERFACE_MODE_MII ||
+	    phymode == PHY_INTERFACE_MODE_GMII ||
+	    phymode == PHY_INTERFACE_MODE_SGMII) {
 		ctrl |= SYSMGR_GEN10_EMACGRP_CTRL_PTP_REF_CLK_MASK;
-	else
+		regmap_read(sys_mgr_base_addr, SYSMGR_FPGAINTF_EMAC_REG,
+			    &module);
+		module |= (SYSMGR_FPGAINTF_EMAC_BIT << reg_shift);
+		regmap_write(sys_mgr_base_addr, SYSMGR_FPGAINTF_EMAC_REG,
+			     module);
+	} else {
 		ctrl &= ~SYSMGR_GEN10_EMACGRP_CTRL_PTP_REF_CLK_MASK;
-
-	/* Take the trigger of auxiliary snapshot 1 from the FPGA fabric, or
-	 * from the HPS I/O pin multiplexer. The signals from the FPGA to the
-	 * EMAC have to be enabled for the trigger to arrive.
-	 */
-	if (dwmac->ops->has_ppstrig_sel) {
-		if (dwmac->f2h_ptp_aux_trig) {
-			ctrl |= SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
-			fpga_intf = true;
-		} else {
-			ctrl &= ~SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
-		}
 	}
 
-	if (fpga_intf)
-		regmap_set_bits(sys_mgr_base_addr, SYSMGR_FPGAINTF_EMAC_REG,
-				SYSMGR_FPGAINTF_EMAC_BIT << reg_shift);
+	/* Take the trigger of auxiliary snapshot 1 from the FPGA fabric, or
+	 * from the HPS I/O pin multiplexer
+	 */
+	if (dwmac->ops->has_ppstrig_sel) {
+		if (dwmac->f2h_ptp_aux_trig)
+			ctrl |= SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
+		else
+			ctrl &= ~SYSMGR_AGILEX5_TSN_PPSTRIG_SEL;
+	}
 
 	regmap_write(sys_mgr_base_addr, reg_offset, ctrl);
 
