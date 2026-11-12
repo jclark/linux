@@ -549,7 +549,7 @@ static void stmmac_get_tx_hwtstamp(struct stmmac_priv *priv,
 	if (stmmac_get_tx_timestamp_status(priv, p)) {
 		stmmac_get_timestamp(priv, p, priv->adv_ts, &ns);
 		found = true;
-	} else if (!stmmac_get_mac_tx_timestamp(priv, priv->hw, &ns)) {
+	} else if (!stmmac_get_mac_tx_timestamp(priv, priv, &ns)) {
 		found = true;
 	}
 
@@ -2741,7 +2741,7 @@ static u64 stmmac_xsk_fill_timestamp(void *_priv)
 	if (stmmac_get_tx_timestamp_status(priv, desc)) {
 		stmmac_get_timestamp(priv, desc, priv->adv_ts, &ns);
 		found = true;
-	} else if (!stmmac_get_mac_tx_timestamp(priv, priv->hw, &ns)) {
+	} else if (!stmmac_get_mac_tx_timestamp(priv, priv, &ns)) {
 		found = true;
 	}
 
@@ -3853,6 +3853,8 @@ static void stmmac_free_irq(struct net_device *dev,
 	struct stmmac_msi *msi = priv->msi;
 	int j;
 
+	stmmac_ptp_mac_irq_ready(priv, false);
+
 	switch (irq_err) {
 	case REQ_IRQ_ERR_ALL:
 		irq_idx = priv->plat->tx_queues_to_use;
@@ -4133,6 +4135,9 @@ static int stmmac_request_irq(struct net_device *dev)
 		ret = stmmac_request_irq_multi_msi(dev);
 	else
 		ret = stmmac_request_irq_single(dev);
+
+	if (!ret)
+		stmmac_ptp_mac_irq_ready(priv, true);
 
 	return ret;
 }
@@ -8639,6 +8644,8 @@ int stmmac_resume(struct device *dev)
 		ret = stmmac_init_timestamping(priv);
 		if (ret)
 			goto error_stop_dma;
+
+		stmmac_ptp_restore_extts(priv);
 
 		ret = stmmac_setup_est(priv);
 		if (ret)
