@@ -279,6 +279,7 @@ const struct stmmac_hwtimestamp dwxgmac2_ptp = {
 	.get_systime = get_systime,
 	.get_ptptime = get_ptptime,
 	.timestamp_interrupt = dwxgmac2_timestamp_interrupt,
+	.aux_snapshot_irq = dwxgmac2_aux_snapshot_irq,
 	.hwtstamp_correct_latency = hwtstamp_correct_latency,
 };
 

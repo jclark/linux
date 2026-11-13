@@ -508,6 +508,10 @@ struct stmmac_hwtimestamp {
 			    struct ptp_system_timestamp *sts);
 	void (*get_ptptime)(void __iomem *ioaddr, u64 *ptp_time);
 	void (*timestamp_interrupt)(struct stmmac_priv *priv);
+	/* Enable the interrupt that reports auxiliary snapshots, on cores
+	 * that do not leave it enabled all the time
+	 */
+	void (*aux_snapshot_irq)(struct stmmac_priv *priv, bool enable);
 	void (*hwtstamp_correct_latency)(struct stmmac_priv *priv);
 };
 
@@ -527,6 +531,8 @@ struct stmmac_hwtimestamp {
 	stmmac_do_void_callback(__priv, ptp, get_ptptime, __args)
 #define stmmac_timestamp_interrupt(__priv, __args...) \
 	stmmac_do_void_callback(__priv, ptp, timestamp_interrupt, __args)
+#define stmmac_aux_snapshot_irq(__priv, __args...) \
+	stmmac_do_void_callback(__priv, ptp, aux_snapshot_irq, __args)
 #define stmmac_hwtstamp_correct_latency(__priv, __args...) \
 	stmmac_do_void_callback(__priv, ptp, hwtstamp_correct_latency, __args)
 

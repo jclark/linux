@@ -105,6 +105,7 @@ void dwmac1000_get_ptptime(void __iomem *ptpaddr, u64 *ptp_time);
 void dwmac1000_timestamp_interrupt(struct stmmac_priv *priv);
 
 void dwxgmac2_timestamp_interrupt(struct stmmac_priv *priv);
+void dwxgmac2_aux_snapshot_irq(struct stmmac_priv *priv, bool enable);
 
 extern const struct ptp_clock_info stmmac_ptp_clock_ops;
 extern const struct ptp_clock_info dwmac1000_ptp_clock_ops;
