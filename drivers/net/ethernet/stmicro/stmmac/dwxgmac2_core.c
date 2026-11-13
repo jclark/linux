@@ -1152,7 +1152,10 @@ re_enable:
 /* Read the timestamp status register and deal with everything that the read
  * reports. Reading it clears the auxiliary snapshot status and with it the
  * timestamp interrupt, so every reader that depends on those has to come
- * through here. Called with ts_status_lock held.
+ * through here. smtg_crosststamp() in dwmac-socfpga reads the register
+ * directly: it runs only while no external timestamp channel is enabled, and
+ * uses only the snapshot count, which a read does not clear. Called with
+ * ts_status_lock held.
  */
 static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
 {
