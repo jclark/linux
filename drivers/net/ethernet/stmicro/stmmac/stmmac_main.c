@@ -549,7 +549,7 @@ static void stmmac_get_tx_hwtstamp(struct stmmac_priv *priv,
 	if (stmmac_get_tx_timestamp_status(priv, p)) {
 		stmmac_get_timestamp(priv, p, priv->adv_ts, &ns);
 		found = true;
-	} else if (!stmmac_get_mac_tx_timestamp(priv, priv->hw, &ns)) {
+	} else if (!stmmac_get_mac_tx_timestamp(priv, &ns)) {
 		found = true;
 	}
 
@@ -2741,7 +2741,7 @@ static u64 stmmac_xsk_fill_timestamp(void *_priv)
 	if (stmmac_get_tx_timestamp_status(priv, desc)) {
 		stmmac_get_timestamp(priv, desc, priv->adv_ts, &ns);
 		found = true;
-	} else if (!stmmac_get_mac_tx_timestamp(priv, priv->hw, &ns)) {
+	} else if (!stmmac_get_mac_tx_timestamp(priv, &ns)) {
 		found = true;
 	}
 
