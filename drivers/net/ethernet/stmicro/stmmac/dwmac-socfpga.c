@@ -304,13 +304,19 @@ static int smtg_crosststamp(ktime_t *device, struct system_counterval_t *system,
 	int i, ret;
 	u32 v;
 
+	/* Hold the lock until the snapshot has been read, so that an external
+	 * timestamp channel cannot be enabled in the middle.
+	 */
+	mutex_lock(&priv->aux_ts_lock);
+
 	/* Both internal crosstimestamping and external triggered event
 	 * timestamping cannot be run concurrently.
 	 */
-	if (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN)
+	if (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN) {
+		mutex_unlock(&priv->aux_ts_lock);
 		return -EBUSY;
+	}
 
-	mutex_lock(&priv->aux_ts_lock);
 	/* Enable Internal snapshot trigger */
 	acr_value = readl(ptpaddr + PTP_ACR);
 	acr_value &= ~PTP_ACR_MASK;
@@ -337,8 +343,6 @@ static int smtg_crosststamp(ktime_t *device, struct system_counterval_t *system,
 	acr_value = readl(ptpaddr + PTP_ACR);
 	acr_value |= PTP_ACR_ATSFC;
 	writel(acr_value, ptpaddr + PTP_ACR);
-	/* Release the mutex */
-	mutex_unlock(&priv->aux_ts_lock);
 
 	/* Trigger Internal snapshot signal. Create a rising edge by just toggle
 	 * the GPO0 to low and back to high.
@@ -355,6 +359,7 @@ static int smtg_crosststamp(ktime_t *device, struct system_counterval_t *system,
 	if (ret) {
 		netdev_err(priv->dev, "%s: Wait for time sync operation timeout\n",
 			   __func__);
+		mutex_unlock(&priv->aux_ts_lock);
 		return ret;
 	}
 
@@ -374,6 +379,7 @@ static int smtg_crosststamp(ktime_t *device, struct system_counterval_t *system,
 		*device = ns_to_ktime(ptp_time);
 		read_unlock_irqrestore(&priv->ptp_lock, flags);
 	}
+	mutex_unlock(&priv->aux_ts_lock);
 
 	get_smtgtime(priv->mii, SMTG_MDIO_ADDR, &smtg_time);
 	system->cycles = smtg_time;
