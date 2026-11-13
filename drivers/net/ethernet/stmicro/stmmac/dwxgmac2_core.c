@@ -18,6 +18,7 @@ static void dwxgmac2_core_init(struct mac_device_info *hw,
 			       struct net_device *dev)
 {
 	void __iomem *ioaddr = hw->pcsr;
+	unsigned long flags;
 	u32 tx, rx;
 
 	tx = readl(ioaddr + XGMAC_TX_CONFIG);
@@ -26,6 +27,11 @@ static void dwxgmac2_core_init(struct mac_device_info *hw,
 	writel(tx | XGMAC_CORE_INIT_TX, ioaddr + XGMAC_TX_CONFIG);
 	writel(rx | XGMAC_CORE_INIT_RX, ioaddr + XGMAC_RX_CONFIG);
 	writel(XGMAC_INT_DEFAULT_EN, ioaddr + XGMAC_INT_EN);
+
+	/* The packet of a TX timestamp that is still held is gone */
+	spin_lock_irqsave(&hw->ts_status_lock, flags);
+	hw->tx_ts_valid = false;
+	spin_unlock_irqrestore(&hw->ts_status_lock, flags);
 }
 
 static void dwxgmac2_irq_modify(struct mac_device_info *hw, u32 disable,
@@ -1142,17 +1148,84 @@ re_enable:
 	return ret;
 }
 
-static int dwxgmac2_get_mac_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
+/* Read the timestamp status register and deal with everything that the read
+ * reports. Reading it clears the auxiliary snapshot status and with it the
+ * timestamp interrupt, so every reader that depends on those has to come
+ * through here. smtg_crosststamp() in dwmac-socfpga reads the register
+ * directly: it runs only while no external timestamp channel is enabled, and
+ * uses only the snapshot count, which a read does not clear. Called with
+ * ts_status_lock held.
+ */
+static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
+{
+	struct mac_device_info *hw = priv->hw;
+	void __iomem *ioaddr = hw->pcsr;
+	u32 status;
+	u64 ts;
+
+	status = readl(ioaddr + XGMAC_TIMESTAMP_STATUS);
+
+	/* Reading the TX timestamp clears XGMAC_TXTSC, which also asserts the
+	 * timestamp interrupt. Hold it for dwxgmac2_get_mac_tx_timestamp().
+	 * Like the MAC, hold one: until it is collected, a later one is lost.
+	 */
+	if (status & XGMAC_TXTSC) {
+		ts = readl(ioaddr + XGMAC_TXTIMESTAMP_NSEC) & XGMAC_TXTSSTSLO;
+		ts += readl(ioaddr + XGMAC_TXTIMESTAMP_SEC) * 1000000000ULL;
+
+		if (!hw->tx_ts_valid) {
+			hw->tx_ts = ts;
+			hw->tx_ts_valid = true;
+		}
+	}
+}
+
+void dwxgmac2_timestamp_interrupt(struct stmmac_priv *priv)
 {
 	void __iomem *ioaddr = priv->hw->pcsr;
-	u32 value;
+	unsigned long flags;
 
-	if (readl_poll_timeout_atomic(ioaddr + XGMAC_TIMESTAMP_STATUS,
-				      value, value & XGMAC_TXTSC, 100, 10000))
+	if (!(readl(ioaddr + XGMAC_INT_STATUS) & XGMAC_INT_TSIS))
+		return;
+
+	/* The interrupt is enabled only while an external timestamp channel
+	 * is enabled.
+	 */
+	if (!(readl(ioaddr + XGMAC_INT_EN) & XGMAC_TSIE))
+		return;
+
+	spin_lock_irqsave(&priv->hw->ts_status_lock, flags);
+	dwxgmac2_timestamp_status(priv);
+	spin_unlock_irqrestore(&priv->hw->ts_status_lock, flags);
+}
+
+/* Take the TX timestamp, if there is one */
+static bool dwxgmac2_take_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
+{
+	struct mac_device_info *hw = priv->hw;
+	unsigned long flags;
+	bool found;
+
+	spin_lock_irqsave(&hw->ts_status_lock, flags);
+	dwxgmac2_timestamp_status(priv);
+	found = hw->tx_ts_valid;
+	if (found) {
+		*ts = hw->tx_ts;
+		hw->tx_ts_valid = false;
+	}
+	spin_unlock_irqrestore(&hw->ts_status_lock, flags);
+
+	return found;
+}
+
+static int dwxgmac2_get_mac_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
+{
+	bool found;
+
+	if (read_poll_timeout_atomic(dwxgmac2_take_tx_timestamp, found, found,
+				     100, 10000, false, priv, ts))
 		return -EBUSY;
 
-	*ts = readl(ioaddr + XGMAC_TXTIMESTAMP_NSEC) & XGMAC_TXTSSTSLO;
-	*ts += readl(ioaddr + XGMAC_TXTIMESTAMP_SEC) * 1000000000ULL;
 	return 0;
 }
 
