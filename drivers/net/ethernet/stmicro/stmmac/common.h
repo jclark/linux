@@ -644,6 +644,14 @@ struct mac_device_info {
 	 * mask/enable registers.
 	 */
 	spinlock_t irq_ctrl_lock;
+
+	/* XGMAC: serialises the reads of the timestamp status register that
+	 * clear status, and protects the TX timestamp read by one of them
+	 * and not yet collected by the TX path.
+	 */
+	spinlock_t ts_status_lock;
+	u64 tx_ts;
+	bool tx_ts_valid;
 };
 
 struct stmmac_rx_routing {
