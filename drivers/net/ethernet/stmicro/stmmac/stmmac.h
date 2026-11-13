@@ -358,6 +358,8 @@ struct stmmac_priv {
 	 * STMMAC_FLAG_EXT_SNAPSHOT_EN is set.
 	 */
 	unsigned int extts_index;
+	/* The MAC interrupt handler is installed. Under hw->ts_status_lock. */
+	bool mac_irq_ready;
 	wait_queue_head_t tstamp_busy_wait;
 
 	void __iomem *mmcaddr;
@@ -425,6 +427,7 @@ void stmmac_set_ethtool_ops(struct net_device *netdev);
 void stmmac_ptp_register(struct stmmac_priv *priv);
 void stmmac_ptp_unregister(struct stmmac_priv *priv);
 void stmmac_ptp_restore_extts(struct stmmac_priv *priv, bool restore);
+void stmmac_ptp_mac_irq_ready(struct stmmac_priv *priv, bool ready);
 int stmmac_xdp_open(struct net_device *dev);
 void stmmac_xdp_release(struct net_device *dev);
 int stmmac_get_phy_intf_sel(phy_interface_t interface);

@@ -135,19 +135,47 @@ static int stmmac_set_time(struct ptp_clock_info *ptp,
 }
 
 /* Start or stop reporting auxiliary snapshots as external timestamp events.
- * Called with aux_ts_lock held.
+ * On XGMAC, whose reporting code holds ts_status_lock, no snapshot is read
+ * from the FIFO or reported once this has stopped it. Called with aux_ts_lock
+ * held.
  */
 static void stmmac_extts_report(struct stmmac_priv *priv, unsigned int index,
 				bool on)
 {
+	unsigned long flags;
+
 	lockdep_assert_held(&priv->aux_ts_lock);
 
+	spin_lock_irqsave(&priv->hw->ts_status_lock, flags);
 	if (on) {
 		priv->extts_index = index;
 		priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
 	} else {
 		priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
 	}
+	stmmac_aux_snapshot_irq(priv, priv, on && priv->mac_irq_ready);
+	spin_unlock_irqrestore(&priv->hw->ts_status_lock, flags);
+}
+
+/**
+ * stmmac_ptp_mac_irq_ready - the MAC interrupt handler was installed or goes
+ * @priv: driver private structure
+ * @ready: the handler is installed
+ * Description: on a core that enables an interrupt for auxiliary snapshots
+ * only while an external timestamp channel is enabled, keep it disabled
+ * while there is no handler for it. A snapshot taken meanwhile stays in the
+ * FIFO, and is reported when the interrupt is enabled.
+ */
+void stmmac_ptp_mac_irq_ready(struct stmmac_priv *priv, bool ready)
+{
+	unsigned long flags;
+	bool on;
+
+	spin_lock_irqsave(&priv->hw->ts_status_lock, flags);
+	priv->mac_irq_ready = ready;
+	on = ready && (priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN);
+	stmmac_aux_snapshot_irq(priv, priv, on);
+	spin_unlock_irqrestore(&priv->hw->ts_status_lock, flags);
 }
 
 /* Enable or disable an auxiliary snapshot. Called with aux_ts_lock held.
@@ -254,6 +282,12 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 	}
 	case PTP_CLK_REQ_EXTTS: {
 		bool enabled;
+
+		/* The clock is visible to user space before
+		 * ptp_clock_register() returns, and events need the clock.
+		 */
+		if (!READ_ONCE(priv->ptp_clock))
+			return -EBUSY;
 
 		mutex_lock(&priv->aux_ts_lock);
 		enabled = priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN;
@@ -363,6 +397,7 @@ const struct ptp_clock_info dwmac1000_ptp_clock_ops = {
 void stmmac_ptp_register(struct stmmac_priv *priv)
 {
 	unsigned int pps_out_num = priv->dma_cap.pps_out_num;
+	struct ptp_clock *ptp_clock;
 	unsigned int n_ext_ts;
 
 	if (pps_out_num > STMMAC_PPS_MAX) {
@@ -395,12 +430,15 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 
 	mutex_init(&priv->aux_ts_lock);
 
-	priv->ptp_clock = ptp_clock_register(&priv->ptp_clock_ops,
-					     priv->device);
-	if (IS_ERR(priv->ptp_clock)) {
+	/* The clock is visible to user space before ptp_clock_register()
+	 * returns. Never let it see an error pointer.
+	 */
+	ptp_clock = ptp_clock_register(&priv->ptp_clock_ops, priv->device);
+	if (IS_ERR(ptp_clock)) {
 		netdev_err(priv->dev, "ptp_clock_register failed\n");
-		priv->ptp_clock = NULL;
+		ptp_clock = NULL;
 	}
+	WRITE_ONCE(priv->ptp_clock, ptp_clock);
 
 	if (priv->ptp_clock)
 		netdev_info(priv->dev, "registered PTP clock\n");
@@ -413,8 +451,9 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
  * @priv: driver private structure
  * @restore: the PTP clock works, so the channel can be enabled
  * Description: a reset of the MAC, as on resume, disables the auxiliary
- * snapshot. Enable it again if an external timestamp channel was enabled, or
- * forget the channel if that is not possible.
+ * snapshot and, on XGMAC, the timestamp interrupt. Enable them again if an
+ * external timestamp channel was enabled, or forget the channel if that is
+ * not possible.
  */
 void stmmac_ptp_restore_extts(struct stmmac_priv *priv, bool restore)
 {
@@ -458,7 +497,7 @@ void stmmac_ptp_unregister(struct stmmac_priv *priv)
 		mutex_lock(&priv->aux_ts_lock);
 		stmmac_extts_report(priv, priv->extts_index, false);
 		mutex_unlock(&priv->aux_ts_lock);
-		priv->ptp_clock = NULL;
+		WRITE_ONCE(priv->ptp_clock, NULL);
 		pr_debug("Removed PTP HW clock successfully on %s\n",
 			 priv->dev->name);
 		mutex_destroy(&priv->aux_ts_lock);

@@ -7,6 +7,7 @@
 #include <linux/bitrev.h>
 #include <linux/crc32.h>
 #include <linux/iopoll.h>
+#include <linux/ptp_clock_kernel.h>
 #include "stmmac.h"
 #include "stmmac_fpe.h"
 #include "stmmac_ptp.h"
@@ -1160,7 +1161,10 @@ static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
 {
 	struct mac_device_info *hw = priv->hw;
 	void __iomem *ioaddr = hw->pcsr;
-	u32 status;
+	struct ptp_clock_event event;
+	struct ptp_clock *ptp_clock;
+	u32 status, num_snapshot, i;
+	unsigned long flags;
 	u64 ts;
 
 	status = readl(ioaddr + XGMAC_TIMESTAMP_STATUS);
@@ -1177,6 +1181,33 @@ static void dwxgmac2_timestamp_status(struct stmmac_priv *priv)
 			hw->tx_ts = ts;
 			hw->tx_ts_valid = true;
 		}
+	}
+
+	/* Without an external timestamp channel, the snapshots in the FIFO
+	 * belong to a cross-timestamp.
+	 */
+	if (!(priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN))
+		return;
+
+	/* The flag is set only while the clock is registered: a request is
+	 * refused before priv->ptp_clock is set, and the flag is cleared
+	 * before the clock is unregistered. The test is for safety.
+	 */
+	ptp_clock = READ_ONCE(priv->ptp_clock);
+	if (!ptp_clock)
+		return;
+
+	num_snapshot = FIELD_GET(XGMAC_TIMESTAMP_ATSNS_MASK, status);
+
+	for (i = 0; i < num_snapshot; i++) {
+		read_lock_irqsave(&priv->ptp_lock, flags);
+		stmmac_get_ptptime(priv, priv->ptpaddr, &ts);
+		read_unlock_irqrestore(&priv->ptp_lock, flags);
+
+		event.type = PTP_CLOCK_EXTTS;
+		event.index = priv->extts_index;
+		event.timestamp = ts;
+		ptp_clock_event(ptp_clock, &event);
 	}
 }
 
@@ -1197,6 +1228,16 @@ void dwxgmac2_timestamp_interrupt(struct stmmac_priv *priv)
 	spin_lock_irqsave(&priv->hw->ts_status_lock, flags);
 	dwxgmac2_timestamp_status(priv);
 	spin_unlock_irqrestore(&priv->hw->ts_status_lock, flags);
+}
+
+/* The timestamp interrupt is not enabled by default: a TX timestamp asserts
+ * it until the timestamp is read, and nothing but an external timestamp
+ * channel needs it.
+ */
+void dwxgmac2_aux_snapshot_irq(struct stmmac_priv *priv, bool enable)
+{
+	stmmac_mac_irq_modify(priv, enable ? 0 : XGMAC_TSIE,
+			      enable ? XGMAC_TSIE : 0);
 }
 
 /* Take the TX timestamp, if there is one */
