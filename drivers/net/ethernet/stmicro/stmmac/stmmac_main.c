@@ -8556,12 +8556,16 @@ int stmmac_resume(struct device *dev)
 	}
 
 	if (priv->ptp_enabled) {
-		if (stmmac_init_ptp_clk_freq(priv))
+		if (stmmac_init_ptp_clk_freq(priv)) {
+			stmmac_ptp_restore_extts(priv, false);
 			goto init_coalesce;
+		}
 
 		ret = stmmac_init_timestamping(priv);
 		if (ret)
 			goto error_stop_dma;
+
+		stmmac_ptp_restore_extts(priv, true);
 
 		ret = stmmac_setup_est(priv);
 		if (ret)
