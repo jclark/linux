@@ -1140,9 +1140,9 @@ re_enable:
 	return ret;
 }
 
-static int dwxgmac2_get_mac_tx_timestamp(struct mac_device_info *hw, u64 *ts)
+static int dwxgmac2_get_mac_tx_timestamp(struct stmmac_priv *priv, u64 *ts)
 {
-	void __iomem *ioaddr = hw->pcsr;
+	void __iomem *ioaddr = priv->hw->pcsr;
 	u32 value;
 
 	if (readl_poll_timeout_atomic(ioaddr + XGMAC_TIMESTAMP_STATUS,
