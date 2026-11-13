@@ -17,3 +17,6 @@ dtb-$(CONFIG_ARCH_INTEL_SOCFPGA) += socfpga_agilex_n6000.dtb \
 				socfpga_stratix10_socdk_emmc.dtb \
 				socfpga_stratix10_socdk_nand.dtb \
 				socfpga_stratix10_swvp.dtb
+
+# Symbols, so that a bootloader can apply overlays for FPGA designs
+DTC_FLAGS_socfpga_agilex5_de25_nano := -@
