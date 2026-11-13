@@ -198,22 +198,37 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		break;
 	}
 	case PTP_CLK_REQ_EXTTS: {
-		u8 channel;
+		bool enabled;
 
 		mutex_lock(&priv->aux_ts_lock);
+		enabled = priv->plat->flags & STMMAC_FLAG_EXT_SNAPSHOT_EN;
+
+		/* Only one auxiliary snapshot can be enabled at a time. The
+		 * enable bits of PTP_ACR do not tell: a cross-timestamp may
+		 * have left the bit of its internal snapshot set.
+		 */
+		if (on && enabled && priv->extts_index != rq->extts.index) {
+			netdev_err(priv->dev,
+				   "Cannot enable auxiliary snapshot %u as auxiliary snapshot %u is already enabled\n",
+				   rq->extts.index, priv->extts_index);
+			mutex_unlock(&priv->aux_ts_lock);
+			return -EBUSY;
+		}
+
+		/* Enabling the channel that is enabled, or disabling one that
+		 * is not, changes nothing.
+		 */
+		if (on ? enabled :
+		    (!enabled || priv->extts_index != rq->extts.index)) {
+			mutex_unlock(&priv->aux_ts_lock);
+			return 0;
+		}
+
 		acr_value = readl(ptpaddr + PTP_ACR);
-		channel = ilog2(FIELD_GET(PTP_ACR_MASK, acr_value));
 		acr_value &= ~PTP_ACR_MASK;
 
 		if (on) {
-			if (FIELD_GET(PTP_ACR_MASK, acr_value)) {
-				netdev_err(priv->dev,
-					   "Cannot enable auxiliary snapshot %d as auxiliary snapshot %d is already enabled",
-					rq->extts.index, channel);
-				mutex_unlock(&priv->aux_ts_lock);
-				return -EBUSY;
-			}
-
+			priv->extts_index = rq->extts.index;
 			priv->plat->flags |= STMMAC_FLAG_EXT_SNAPSHOT_EN;
 
 			/* Enable External snapshot trigger */
@@ -222,7 +237,7 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		} else {
 			priv->plat->flags &= ~STMMAC_FLAG_EXT_SNAPSHOT_EN;
 		}
-		netdev_dbg(priv->dev, "Auxiliary Snapshot %d %s.\n",
+		netdev_dbg(priv->dev, "Auxiliary Snapshot %u %s.\n",
 			   rq->extts.index, on ? "enabled" : "disabled");
 		writel(acr_value, ptpaddr + PTP_ACR);
 		mutex_unlock(&priv->aux_ts_lock);
