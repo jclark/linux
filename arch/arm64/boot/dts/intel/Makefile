@@ -12,4 +12,8 @@ dtb-$(CONFIG_ARCH_INTEL_SOCFPGA) += socfpga_agilex_n6000.dtb \
 				socfpga_agilex72_socdk.dtb \
 				socfpga_agilex7m_socdk.dtb \
 				socfpga_n5x_socdk.dtb
+
+# Symbols, so that a bootloader can apply overlays for FPGA designs
+DTC_FLAGS_socfpga_agilex5_de25_nano := -@
+
 dtb-$(CONFIG_ARCH_KEEMBAY) += keembay-evm.dtb
