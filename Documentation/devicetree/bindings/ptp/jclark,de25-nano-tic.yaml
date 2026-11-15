@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/ptp/jclark,de25-nano-tic.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: DE25-Nano FPGA time interval counter
+
+maintainers:
+  - James Clark <jjc@jclark.com>
+
+description:
+  A time interval counter (TIC) in the FPGA fabric of the Terasic
+  DE25-Nano (Altera Agilex 5), reached over the lightweight HPS-to-FPGA
+  bridge. It has a free-running 64-bit counter and up to 32 input
+  channels. A rising edge on an enabled channel puts the counter value
+  into a FIFO, and the interrupt is high while the FIFO holds an event.
+  The design also feeds the counter into the fabric counter input of the
+  SMTG hubs of the HPS Ethernet MACs, so that a hub can capture the TIC
+  counter and the HPS system counter together.
+
+properties:
+  compatible:
+    const: jclark,de25-nano-tic
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  jclark,smtg-mac:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description:
+      The HPS Ethernet MAC whose SMTG hub has its fabric counter input
+      driven by this TIC's counter. On a trigger from that MAC, the hub
+      captures the TIC counter and the HPS system counter together. The
+      hub is reached through the MAC's own registers, so using it needs
+      the clocks and resets given in the MAC's node.
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+
+    tic@20011000 {
+        compatible = "jclark,de25-nano-tic";
+        reg = <0x20011000 0x100>;
+        interrupts = <GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>;
+        jclark,smtg-mac = <&gmac1>;
+    };
