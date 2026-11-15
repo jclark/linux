@@ -242,6 +242,20 @@ config PTP_DFL_TOD
 	  To compile this driver as a module, choose M here: the module
 	  will be called ptp_dfl_tod.
 
+config PTP_DE25_TIC
+	tristate "DE25-Nano FPGA time interval counter as PTP clock"
+	depends on (ARCH_INTEL_SOCFPGA && ARM_ARCH_TIMER) || COMPILE_TEST
+	depends on HAS_IOMEM && OF
+	depends on PTP_1588_CLOCK
+	help
+	  This driver adds a PTP clock for the time interval counter (TIC)
+	  in the FPGA fabric of the Terasic DE25-Nano. Each TIC channel is
+	  an external timestamp input. Cross timestamps use the SMTG hub of
+	  an otherwise unused HPS Ethernet MAC.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called ptp_de25_tic.
+
 config PTP_S390
 	tristate "S390 PTP driver"
 	depends on PTP_1588_CLOCK

@@ -7405,6 +7405,13 @@ S:	Maintained
 F:	Documentation/scsi/dc395x.rst
 F:	drivers/scsi/dc395x.*
 
+DE25-NANO FPGA TIME INTERVAL COUNTER PTP DRIVER
+M:	James Clark <jjc@jclark.com>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/ptp/jclark,de25-nano-tic.yaml
+F:	drivers/ptp/ptp_de25_tic.c
+
 DEBUGOBJECTS:
 M:	Thomas Gleixner <tglx@kernel.org>
 L:	linux-kernel@vger.kernel.org
