@@ -887,6 +887,8 @@ patternProperties:
     description: Jadard Technology Inc.
   "^jasonic,.*":
     description: Jasonic Technology Ltd.
+  "^jclark,.*":
+    description: James Clark
   "^jdi,.*":
     description: Japan Display Inc.
   "^jedec,.*":
