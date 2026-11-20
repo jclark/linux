@@ -8,6 +8,7 @@
 #include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
+#include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/if_vlan.h>
 #include <linux/interrupt.h>
@@ -1008,6 +1009,11 @@ static int am65_cpts_gtc_push_arm(struct am65_cpts *cpts)
 	for (i = 0; i < AM65_CPTS_GTC_PUSH_DRAIN_PASSES; i++) {
 		spin_lock_irqsave(&cpts->lock, flags);
 		__am65_cpts_fifo_read(cpts);
+		/*
+		 * TS_PEND is valid only once four CPTS_RFT_CLK periods plus
+		 * four CPPI_ICLK periods have passed since a pop.
+		 */
+		ndelay(100);
 		if (!(am65_cpts_read32(cpts, intstat_raw) &
 		      AM65_CPTS_INTSTAT_RAW_TS_PEND)) {
 			cpts->gtc_push_armed = true;
