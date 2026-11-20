@@ -1435,12 +1435,17 @@ static int am65_cpts_of_parse(struct am65_cpts *cpts, struct device_node *node)
 	if (of_property_present(node, "ti,gtc-push")) {
 		gtc = syscon_regmap_lookup_by_phandle_args(node, "ti,gtc-push",
 							   1, &prop[0]);
-		if (IS_ERR(gtc))
-			return dev_err_probe(cpts->dev, PTR_ERR(gtc),
-					     "Failed to get GTC syscon\n");
-
-		if (prop[0] > 7 ||
-		    (cpts->pps_present && prop[0] == cpts->pps_hw_ts_idx)) {
+		/*
+		 * Don't return -EPROBE_DEFER. The lookup returns it for a
+		 * phandle to a node that is not a syscon, and the probe
+		 * would then be deferred for ever.
+		 */
+		if (IS_ERR(gtc)) {
+			dev_warn(cpts->dev, "Failed to get GTC syscon: %pe\n",
+				 gtc);
+		} else if (prop[0] > 7 ||
+			   (cpts->pps_present &&
+			    prop[0] == cpts->pps_hw_ts_idx)) {
 			dev_err(cpts->dev,
 				"invalid GTC push HWx_TS_PUSH index: %u\n",
 				prop[0]);
