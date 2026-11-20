@@ -879,8 +879,17 @@ static int am65_cpts_gtc_push_select(struct am65_cpts *cpts)
 					    AM65_CPTS_GTC_PUSH_BIT));
 	if (ret)
 		return ret;
-	/* flush the posted write before the input is enabled */
-	return regmap_read(cpts->gtc, AM65_CPTS_GTC_PUSHEVT, &val);
+	/*
+	 * Read the register back. This flushes the posted write before the
+	 * input is enabled, and checks that the selection took effect.
+	 */
+	ret = regmap_read(cpts->gtc, AM65_CPTS_GTC_PUSHEVT, &val);
+	if (ret)
+		return ret;
+	if (FIELD_GET(AM65_CPTS_GTC_PUSHEVT_EXPBIT_SEL, val) !=
+	    AM65_CPTS_GTC_PUSH_BIT)
+		return -EIO;
+	return 0;
 }
 
 /*
