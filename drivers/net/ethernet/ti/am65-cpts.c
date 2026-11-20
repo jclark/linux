@@ -312,7 +312,8 @@ static bool am65_cpts_fifo_pop_event(struct am65_cpts *cpts,
 static void am65_cpts_gtc_push_event(struct am65_cpts *cpts,
 				     struct am65_cpts_event *event)
 {
-	struct system_time_snapshot snap;
+	/* an invalid snapshot leaves cycles at 0, which is before any edge */
+	struct system_time_snapshot snap = {};
 
 	/* keep the first event of a request; later edges are not used */
 	if (!cpts->gtc_push_armed)
