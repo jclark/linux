@@ -914,8 +914,11 @@ static int am65_cpts_gtc_push_arm(struct am65_cpts *cpts)
 		__am65_cpts_fifo_read(cpts);
 		/*
 		 * TS_PEND is valid only once four CPTS_RFT_CLK periods plus
-		 * four CPPI_ICLK periods have passed since a pop.
+		 * four CPPI_ICLK periods have passed since a pop. Read a
+		 * register so that the last pop has reached the CPTS, then
+		 * wait. 100 ns is enough for clocks of 80 MHz or more.
 		 */
+		am65_cpts_read32(cpts, intstat_raw);
 		ndelay(100);
 		if (!(am65_cpts_read32(cpts, intstat_raw) &
 		      AM65_CPTS_INTSTAT_RAW_TS_PEND)) {
