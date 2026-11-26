@@ -25,6 +25,12 @@
 #define HWMON_TIMEOUT			msecs_to_jiffies(SVC_HWMON_REQUEST_TIMEOUT_MS)
 #define HWMON_RETRY_SLEEP_US		1000U
 #define HWMON_ASYNC_MSG_RETRY		3U
+/*
+ * Requests that timed out but may still be answered. Their job IDs stay
+ * allocated until the late response is drained, so a new request can't reuse
+ * one and be handed the old answer. The job ID pool has 16 IDs per client.
+ */
+#define HWMON_MAX_PENDING		4
 #define SOCFPGA_HWMON_MAXSENSORS	16
 #define SOCFPGA_HWMON_CHANNEL_MASK	GENMASK(15, 0)
 #define SOCFPGA_HWMON_PAGE_SHIFT	16
@@ -67,6 +73,7 @@ struct socfpga_hwmon_priv {
 	struct completion completion;
 	struct mutex lock;	/* protect SVC calls */
 	bool async;
+	void *pending[HWMON_MAX_PENDING];	/* timed-out async handles */
 	int last_err;		/* sync-mode SVC result; 0 on success */
 	u32 temperature;
 	u32 voltage;
@@ -183,6 +190,45 @@ static int socfpga_hwmon_encode_volt_arg(u32 reg, u64 *arg)
 	return 0;
 }
 
+/*
+ * Retire timed-out requests the SDM has since answered (or failed). Returns
+ * the number still outstanding.
+ */
+static int socfpga_hwmon_drain_pending(struct socfpga_hwmon_priv *priv)
+{
+	struct stratix10_svc_cb_data data = {};
+	int i, outstanding = 0;
+
+	for (i = 0; i < HWMON_MAX_PENDING; i++) {
+		if (!priv->pending[i])
+			continue;
+		if (stratix10_svc_async_poll(priv->chan, priv->pending[i],
+					     &data) == -EAGAIN) {
+			outstanding++;
+			continue;
+		}
+		stratix10_svc_async_done(priv->chan, priv->pending[i]);
+		priv->pending[i] = NULL;
+	}
+
+	return outstanding;
+}
+
+/* Keep a timed-out handle's job ID allocated; false if there's no room. */
+static bool socfpga_hwmon_park(struct socfpga_hwmon_priv *priv, void *handle)
+{
+	int i;
+
+	for (i = 0; i < HWMON_MAX_PENDING; i++) {
+		if (!priv->pending[i]) {
+			priv->pending[i] = handle;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static int socfpga_hwmon_async_read(struct device *dev,
 				    enum hwmon_sensor_types type,
 				    struct stratix10_svc_client_msg *msg)
@@ -192,6 +238,10 @@ static int socfpga_hwmon_async_read(struct device *dev,
 	unsigned long deadline = jiffies + HWMON_TIMEOUT;
 	void *handle = NULL;
 	int status, index, ret;
+
+	/* Every slot holds a request the SDM still owes: it is busy, so wait. */
+	if (socfpga_hwmon_drain_pending(priv) == HWMON_MAX_PENDING)
+		return -EAGAIN;
 
 	for (index = 0; index < HWMON_ASYNC_MSG_RETRY; index++) {
 		status = stratix10_svc_async_send(priv->chan, msg, &handle,
@@ -221,6 +271,18 @@ static int socfpga_hwmon_async_read(struct device *dev,
 			break;
 		}
 		usleep_range(HWMON_RETRY_SLEEP_US, HWMON_RETRY_SLEEP_US * 2);
+	}
+
+	if (ret == -ETIMEDOUT) {
+		/*
+		 * The SDM may still answer. Releasing the handle would free its
+		 * job ID for the next request, which would then get this
+		 * request's late response.
+		 */
+		dev_warn_ratelimited(dev, "SDM response timed out\n");
+		if (socfpga_hwmon_park(priv, handle))
+			return ret;
+		goto done;
 	}
 
 	if (ret) {
@@ -499,6 +561,11 @@ static int socfpga_hwmon_init_channels(struct device *dev,
 static void socfpga_hwmon_release_svc(void *data)
 {
 	struct socfpga_hwmon_priv *priv = data;
+	int i;
+
+	for (i = 0; i < HWMON_MAX_PENDING; i++)
+		if (priv->pending[i])
+			stratix10_svc_async_done(priv->chan, priv->pending[i]);
 
 	if (priv->async)
 		stratix10_svc_remove_async_client(priv->chan);

@@ -609,10 +609,7 @@ static void socfpga_agilex5_setup_plat_dat(struct socfpga_dwmac *dwmac)
 	/* Enable TSO */
 	plat_dat->flags |= STMMAC_FLAG_TSO_EN;
 
-	/* With split header on, a received packet that the MAC does not
-	 * split (an IPv4 fragment, for one) is corrupted past its first
-	 * 256 bytes.
-	 */
+	/* Disable split header */
 	plat_dat->flags |= STMMAC_FLAG_SPH_DISABLE;
 
 	/* Enable TBS */
