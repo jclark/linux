@@ -65,6 +65,40 @@
 	clock-frequency = <25000000>;
 };
 
+&qspi {
+	/*
+	 * The QSPI flash belongs to the SDM while the board boots from it (AS
+	 * mode). With Terasic's U-Boot the HPS has no access: U-Boot "sf probe"
+	 * fails and the cadence-qspi probe takes an SError. Terasic's own dts
+	 * leaves the controller disabled. U-Boot (ft_board_setup) sets it okay
+	 * when the SDM has handed the flash to the HPS.
+	 */
+	status = "disabled";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <100000000>;
+		m25p,fast-read;
+		cdns,read-delay = <2>;
+		cdns,tshsl-ns = <50>;
+		cdns,tsd2d-ns = <50>;
+		cdns,tchsh-ns = <4>;
+		cdns,tslch-ns = <4>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x0 0x01000000>;
+			};
+		};
+	};
+};
+
 &sdmmc {
 	bus-width = <4>;
 	cap-sd-highspeed;
