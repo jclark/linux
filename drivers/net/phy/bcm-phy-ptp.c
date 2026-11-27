@@ -829,10 +829,15 @@ static int bcm_ptp_hwtstamp_set(struct mii_timestamper *mii_ts,
 	ctrl  = priv->hwts_rx ? SLICE_RX_EN : 0;
 	ctrl |= priv->tx_type != HWTSTAMP_TX_OFF ? SLICE_TX_EN : 0;
 
-	mode = TX_MODE_SEL(PORT, SYNC, REPLACE_TS) |
-	       TX_MODE_SEL(PORT, DELAY_REQ, REPLACE_TS) |
-	       TX_MODE_SEL(PORT, PDELAY_REQ, REPLACE_TS) |
-	       TX_MODE_SEL(PORT, PDELAY_RESP, REPLACE_TS);
+	/* Every event message gets a TX timestamp, whatever its mode.
+	 * Rewrite only a one-step Sync: in two-step messages the field
+	 * that REPLACE_TS overwrites can carry data, such as the
+	 * requestReceiptTimestamp of a Pdelay_Resp.
+	 */
+	if (priv->tx_type == HWTSTAMP_TX_ONESTEP_SYNC)
+		mode = TX_MODE_SEL(PORT, SYNC, REPLACE_TS);
+	else
+		mode = 0;
 
 	bcm_phy_write_exp(priv->phydev, TX_EVENT_MODE, mode);
 
