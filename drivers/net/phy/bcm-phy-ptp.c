@@ -755,10 +755,6 @@ static void bcm_ptp_txtstamp(struct mii_timestamper *mii_ts,
 	msgtype = ptp_get_msgtype(hdr, type);
 
 	switch (priv->tx_type) {
-	case HWTSTAMP_TX_ONESTEP_P2P:
-		if (msgtype == PTP_MSGTYPE_PDELAY_RESP)
-			discard = true;
-		fallthrough;
 	case HWTSTAMP_TX_ONESTEP_SYNC:
 		if (msgtype == PTP_MSGTYPE_SYNC)
 			discard = true;
@@ -798,6 +794,15 @@ static int bcm_ptp_hwtstamp_set(struct mii_timestamper *mii_ts,
 {
 	struct bcm_ptp_private *priv = mii2priv(mii_ts);
 	u16 mode, ctrl;
+
+	switch (cfg->tx_type) {
+	case HWTSTAMP_TX_OFF:
+	case HWTSTAMP_TX_ON:
+	case HWTSTAMP_TX_ONESTEP_SYNC:
+		break;
+	default:
+		return -ERANGE;
+	}
 
 	switch (cfg->rx_filter) {
 	case HWTSTAMP_FILTER_NONE:
@@ -864,8 +869,7 @@ static int bcm_ptp_ts_info(struct mii_timestamper *mii_ts,
 	ts_info->tx_types =
 		BIT(HWTSTAMP_TX_ON) |
 		BIT(HWTSTAMP_TX_OFF) |
-		BIT(HWTSTAMP_TX_ONESTEP_SYNC) |
-		BIT(HWTSTAMP_TX_ONESTEP_P2P);
+		BIT(HWTSTAMP_TX_ONESTEP_SYNC);
 	ts_info->rx_filters =
 		BIT(HWTSTAMP_FILTER_NONE) |
 		BIT(HWTSTAMP_FILTER_PTP_V2_EVENT);
